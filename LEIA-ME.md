@@ -1,65 +1,46 @@
-# Ítalo ERP 2.1 — protótipo PWA local
+# Ítalo ERP 2.2 — versão de testes para iPhone
 
-Aplicação simples para testar gestão de eletrônicos no iPhone e no computador. Funciona sem dependências, sem API e sem banco de dados remoto. **Não substitui o ERP original.**
+ERP local-first (HTML/CSS/JavaScript) para testes de operação. Os dados são salvos somente no navegador pelo `localStorage`. Não tem backend, login seguro nem sincronização entre dispositivos.
 
-## Atualização 2.1 (21/10/2026)
+## Correções da versão 2.2
 
-- O campo **Fornecedor principal** aparece no cadastro/edição de produtos. Você pode digitar o nome; se for novo, ele é criado automaticamente em Fornecedores, sem duplicar nomes equivalentes.
-- Na tela **Entradas**, um fornecedor padrão pode vir preenchido a partir do produto; também é possível informar um novo fornecedor diretamente na entrada. O fornecedor real da compra pertence à entrada e pode diferir do fornecedor principal do produto.
-- Os pop-ups, inclusive a **Nova venda**, agora têm conteúdo rolável no iPhone e rodapé de ações fixo e alcançável.
-- Ao adicionar/remover itens da venda, o aplicativo preserva a posição de rolagem.
-- O cache PWA mudou de versão para atualizar os arquivos no navegador.
-- A chave de armazenamento e o formato do backup continuam **os mesmos**. Os produtos antigos permanecem válidos e podem receber um fornecedor principal na edição.
+1. **Quantidade no cadastro:** Novo produto permite registrar estoque inicial imediatamente, sem mudar de tela. Na edição, o campo **Quantidade para adicionar** cria uma nova entrada e não substitui o estoque atual. A tela mostra o saldo atual. Deixar **0** salva apenas a ficha.
+2. **Controle por IMEI:** Quando o produto está configurado **Por IMEI / número de série**, informe um IMEI por linha. A quantidade é automaticamente ajustada à contagem de linhas. O sistema exige um IMEI por unidade e bloqueia números repetidos no histórico. Para produtos que não têm IMEI, selecione **Por quantidade**.
+3. **Fornecedores:** O fornecedor informado na ficha fica ligado à nova entrada criada pelo cadastro; outros fornecedores podem ser escolhidos no fluxo **Entradas**.
+4. **Zoom e teclado do iPhone:** Campos agora usam tamanho de fonte de no mínimo 16px para evitar o zoom automático do Safari. O app não foca automaticamente o primeiro campo no celular. O rodapé do modal continua fixo, e o formulário tem rolagem própria; uma adaptação de altura usa a área visível quando o teclado é aberto. O zoom manual do iPhone permanece disponível.
+5. **Persistência:** Produto e entrada inicial são gravados juntos na mesma operação de armazenamento; os registros são considerados na venda e no lucro estimado.
 
-**Antes de atualizar:** salve um backup em Configurações; depois substitua os arquivos do repositório, mantendo o endereço do site. Não exclua dados do Safari para forçar atualização.
+## Atualização no GitHub Pages
 
-## Como testar
+1. **ANTES DE ATUALIZAR, faça backup:** no ERP existente, abra **Mais → Configurações → Baixar backup** e guarde o arquivo JSON fora do Safari.
+2. Extraia o ZIP. Envie para a raiz do **mesmo repositório** os arquivos `index.html`, `styles.css`, `app.js`, `service-worker.js`, `manifest.webmanifest` e os três ícones PNG, substituindo as versões anteriores.
+3. Acesse o endereço de sempre no Safari e atualize a página. O cache do PWA foi incrementado para `v3`. Se o ícone da tela inicial ainda exibir a versão antiga, abra primeiro o site no Safari, atualize, feche o app instalado e abra novamente. **Não apague os dados do site, nem desinstale o PWA para forçar a atualização.**
+4. Não é necessário importar backup na atualização normal no **mesmo endereço/navegador**. A chave `italo_erp_v2_db` e a estrutura de dados `schemaVersion:2` não foram alteradas.
 
-1. Abra `index.html` no computador para um teste inicial; para testar o modo instalado no iPhone, publique todos os arquivos em um site com HTTPS (por exemplo, um **novo repositório GitHub Pages**).
-2. No Safari do iPhone, abra a URL da versão 2.0 e use **Compartilhar → Adicionar à Tela de Início**.
-3. Em **Mais → Configurações**, toque em **Carregar demonstração** para testar com dados inventados.
-4. Quando quiser cadastrar produtos reais, limpe a demonstração, crie os produtos, depois as **Entradas**; só então conclua vendas com estoque.
-5. Faça **backup JSON** periodicamente. Os dados não sincronizam entre aparelhos.
+## Como testar o produto do print que está com zero unidades
 
-## Como publicar sem substituir seu sistema atual
+- Vá em **Estoque**, toque no lápis do produto **Teste**.
+- Desça até **Adicionar unidades ao estoque**. O saldo atual será mostrado (por exemplo, **0 un.**).
+- No campo **Quantidade para adicionar**, informe, por exemplo, `2`.
+- Se o controle do produto for **Por quantidade**, não será necessário informar IMEI. Se for **Por IMEI**, preencha 2 IMEIs diferentes, um por linha.
+- Confira o **Custo de compra por unidade** e o fornecedor, então toque em **Salvar produto**.
+- A lista exibirá **2 un.**. Em **Vendas → Nova venda**, o produto estará disponível.
 
-1. Crie um novo repositório chamado `erp-2` no GitHub.
-2. Envie os arquivos `index.html`, `styles.css`, `app.js`, `service-worker.js`, `manifest.webmanifest` e os três ícones `.png` para a **raiz** do repositório.
-3. Em Settings → Pages, escolha **Deploy from a branch**, branch `main`, pasta `/ (root)`.
-4. Depois que o Pages publicar, o endereço esperado terá o formato `https://SEU-USUARIO.github.io/erp-2/`. A URL real depende do nome e da publicação do repositório.
-5. Abra a URL no Safari do iPhone e adicione à tela inicial.
+**Atenção:** se você editar um produto com 2 unidades em estoque e informar mais 3 em **Quantidade para adicionar**, o saldo passará para 5; essa operação não serve para corrigir/remover saldos. Para entradas subsequentes, também pode usar o botão `+` do estoque e a tela **Entradas**.
 
-## O que já está incluído
+## Limitações
 
-- Dashboard com valores do mês, estoque disponível, custo do estoque e valores a receber.
-- Produtos com controle por IMEI/série ou por quantidade, alerta de estoque mínimo, SKU e preços padrão.
-- Entradas com custo real, fornecedor e IMEI; bloqueio de duplicidade de série.
-- Vendas com vários itens, alocação de custo FIFO por entrada, taxas, frete, outras despesas, valor recebido e cancelamento (com devolução lógica ao estoque).
-- Encomendas sem baixa no estoque até a conclusão, com escolha do IMEI na finalização.
-- Clientes, fornecedores, WhatsApp, despesas e receitas extras.
-- Garantias vinculadas à venda e ao item, custo e status.
-- Backup e importação JSON da própria versão 2.0; demo removível.
-- Interface adaptada para tela pequena; service worker para disponibilizar a interface após primeiro carregamento online.
+- Dados em `localStorage` são isolados por navegador, perfil e origem do site; **não** sincronizam do PC para o iPhone.
+- Limpar dados do Safari ou certas políticas de armazenamento podem remover registros. Exporte backups frequentemente.
+- Nenhuma alteração foi feita no ERP original publicado em `/sistema/`.
+- Esta versão foi testada no Chromium com emulação de viewport móvel, não no Safari físico. Verifique foco, rolagem e comportamento do teclado no seu iPhone após publicar.
+- Vendas concluídas exigem saldo em estoque. Encomendas podem ser registradas sem estoque físico e concluídas depois de receber os produtos.
 
-## Limitações intencionais da versão de testes
+## Estrutura
 
-- **LocalStorage:** dados isolados por navegador e endereço. Limpar dados do site ou usar outro aparelho pode causar perda ou ausência de dados. Safari pode remover armazenamento em certas condições. Faça backup fora do navegador.
-- **Sem login seguro:** por ser um protótipo sem backend, não use para dados confidenciais. O app não tem a senha `admin` do sistema anterior.
-- **Backup do ERP antigo:** não é aceito automaticamente; será preciso conhecer e mapear o formato de dados original para uma migração futura.
-- **Financeiro gerencial:** não faz conciliação bancária, contas parceladas, emissão fiscal ou regime de competência contábil completo. O resultado utiliza preços/custos/taxas/despesas registrados; mercadorias entram no resultado quando vendidas. Recebimentos são valores acumulados por venda.
-- **Garantia:** controle operacional; a lei aplicável precisa ser observada separadamente.
-- **Offline:** interface pode abrir offline após primeira instalação/carregamento e cache completo; não há sincronização, resolução de conflitos nem garantias de preservação dos dados do navegador.
-- **Estornos e devoluções parciais:** não incluídos; cancelamento é da venda completa e bloqueado se houver garantia vinculada.
-
-## Estrutura dos arquivos
-
-- `index.html` — entrada do aplicativo
-- `styles.css` — visual responsivo
-- `app.js` — telas, validações, cálculos e LocalStorage
-- `service-worker.js` — cache dos arquivos do aplicativo
-- `manifest.webmanifest` — instalação PWA
-- `icon-180.png`, `icon-192.png`, `icon-512.png` — ícones
-
-## Segurança na atualização
-
-Não altere o nome da chave `italo_erp_v2_db` nem a estrutura dos dados sem preparar migração. Nunca exclua o repositório original por causa deste protótipo. Antes de publicar uma versão nova, exporte um backup JSON e teste a importação em ambiente separado.
+- `index.html`: estrutura HTML e metadados PWA
+- `styles.css`: interface responsiva
+- `app.js`: regra de negócio, operações de estoque/venda e persistência
+- `service-worker.js`: cache de instalação/offline
+- `manifest.webmanifest`: dados de instalação
+- ícones: `icon-180.png`, `icon-192.png`, `icon-512.png`

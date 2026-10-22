@@ -1,4 +1,4 @@
-const CACHE = 'italo-erp2-shell-20261021-v2';
+const CACHE = 'italo-erp2-shell-20261021-v3';
 const SHELL = ['./', './index.html', './styles.css', './app.js', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

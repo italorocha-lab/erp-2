@@ -1,4 +1,4 @@
-/* Ítalo ERP 2.0 — protótipo local-first, sem dependências externas.
+/* Ítalo ERP 2.2 — protótipo local-first, sem dependências externas.
    Dados ficam apenas no navegador atual. Esta versão NÃO possui autenticação de servidor. */
 (() => {
 'use strict';
@@ -157,7 +157,7 @@ const NAV=[['dashboard','Início','home'],['stock','Estoque','box'],['sales','Ve
 function navRender(){
  const active= ['clients','suppliers','entries','warranties','settings'].includes(view)?'more':view;
  const all=[...NAV.slice(0,4),['entries','Entradas','layers'],['clients','Clientes','users'],['suppliers','Fornecedores','truck'],['warranties','Garantias','shield'],['settings','Configurações','settings']];
- document.getElementById('sidebar').innerHTML=`<div class="brand"><div class="brand-mark">IR</div><div><div class="brand-name">Ítalo ERP</div><div class="brand-sub">Gestão simples · v2.1</div></div></div><div class="side-group-title">PRINCIPAL</div>${all.map(([id,label,ico],i)=>`${i===4?'<div class="side-group-title">GERENCIAMENTO</div>':''}<button class="menu-btn ${view===id?'active':''}" data-action="nav" data-view="${id}">${icon(ico)}${esc(label)}</button>`).join('')}<div class="side-foot"><span class="dot"></span> Dados locais neste aparelho</div>`;
+ document.getElementById('sidebar').innerHTML=`<div class="brand"><div class="brand-mark">IR</div><div><div class="brand-name">Ítalo ERP</div><div class="brand-sub">Gestão simples · v2.2</div></div></div><div class="side-group-title">PRINCIPAL</div>${all.map(([id,label,ico],i)=>`${i===4?'<div class="side-group-title">GERENCIAMENTO</div>':''}<button class="menu-btn ${view===id?'active':''}" data-action="nav" data-view="${id}">${icon(ico)}${esc(label)}</button>`).join('')}<div class="side-foot"><span class="dot"></span> Dados locais neste aparelho</div>`;
  document.getElementById('bottom-nav').innerHTML=NAV.map(([id,label,ico])=>`<button class="bottom-btn ${active===id?'active':''}" data-action="nav" data-view="${id}" ${active===id?'aria-current="page"':''}>${icon(ico)}<span>${label}</span></button>`).join('');
 }
 function render(){navRender();const main=document.getElementById('main'); const pages={dashboard:renderDashboard,stock:renderStock,sales:renderSales,finance:renderFinance,more:renderMore,clients:()=>renderPersons('clients'),suppliers:()=>renderPersons('suppliers'),entries:renderEntries,warranties:renderWarranties,settings:renderSettings}; main.innerHTML=(pages[view]||renderDashboard)();}
@@ -221,22 +221,65 @@ function renderSettings(){
  <div class="settings-card">${icon('layers')}<h3>Dados de demonstração</h3><p>Preencha o ERP com exemplos fictícios de aparelhos, acessórios, vendas, clientes, entrada, despesa e garantia. Útil para testar as telas.</p><button class="btn" data-action="seed">${icon('plus')} Carregar demonstração</button></div>
  <div class="settings-card dangerzone">${icon('trash')}<h3>Apagar dados de teste</h3><p>Apaga os registros desta versão neste navegador. A operação não pode ser desfeita sem um backup.</p><button class="btn btn-danger" data-action="reset">${icon('trash')} Limpar todos os dados</button></div></div>
  <div class="notice margin-top">${icon('warning')}<span><strong>Atenção:</strong> LocalStorage não é um banco de dados seguro nem sincronizado. No Safari do iPhone, dados podem ser removidos ao limpar o histórico ou os dados do site, ou por políticas de armazenamento. Esta versão não tem login seguro e não deve ser usada para informações sensíveis. Faça backup antes de testes importantes.</span></div>
- <div class="panel panel-pad margin-top"><h2 class="section-title">Sobre a versão de testes</h2><p class="muted-block">ERP 2.0 · Dados armazenados sob a chave <code>${KEY}</code> · Modelo de dados v${VERSION}. Esta versão é independente do ERP original: os backups da versão antiga não são importados automaticamente.</p><div class="stat-pair"><span>Produtos</span><strong>${db.products.length}</strong></div><div class="stat-pair"><span>Entradas</span><strong>${db.entries.length}</strong></div><div class="stat-pair"><span>Vendas e encomendas</span><strong>${db.sales.length}</strong></div><div class="stat-pair"><span>Última alteração</span><strong>${esc(db.updatedAt?new Date(db.updatedAt).toLocaleString('pt-BR'):'—')}</strong></div></div>`;
+ <div class="panel panel-pad margin-top"><h2 class="section-title">Sobre a versão de testes</h2><p class="muted-block">ERP 2.2 · Dados armazenados sob a chave <code>${KEY}</code> · Modelo de dados v${VERSION}. Esta versão é independente do ERP original: os backups da versão antiga não são importados automaticamente.</p><div class="stat-pair"><span>Produtos</span><strong>${db.products.length}</strong></div><div class="stat-pair"><span>Entradas</span><strong>${db.entries.length}</strong></div><div class="stat-pair"><span>Vendas e encomendas</span><strong>${db.sales.length}</strong></div><div class="stat-pair"><span>Última alteração</span><strong>${esc(db.updatedAt?new Date(db.updatedAt).toLocaleString('pt-BR'):'—')}</strong></div></div>`;
 }
 function modalFrame(title,subtitle,fields,submitLabel='Salvar',size='',footer=''){
  currentModal=title;
  document.body.classList.add('modal-open');
  document.getElementById('modal-root').innerHTML=`<div class="modal-backdrop" data-backdrop="1"><div class="modal ${size}" role="dialog" aria-modal="true" aria-label="${attr(title)}"><div class="modal-header"><div><h2>${esc(title)}</h2>${subtitle?`<p>${esc(subtitle)}</p>`:''}</div><button class="icon-btn" data-action="close-modal" aria-label="Fechar">${icon('close')}</button></div><form id="modal-form"><div class="modal-content">${fields}</div><div class="modal-footer"><button class="btn" type="button" data-action="close-modal">Voltar</button>${footer}<button class="btn btn-primary" type="submit">${icon('check')}${esc(submitLabel)}</button></div></form></div></div>`;
- setTimeout(()=>{document.querySelector('#modal-form input:not([type="hidden"]),#modal-form select')?.focus({preventScroll:true});},10);
+ // No iPhone, abrir o teclado automaticamente prejudica a experiência.
+ // Em computadores mantemos o foco inicial; no celular o usuário toca no campo desejado.
+ if(window.matchMedia('(hover: hover) and (pointer: fine)').matches){
+  setTimeout(()=>{document.querySelector('#modal-form input:not([type="hidden"]),#modal-form select')?.focus({preventScroll:true});},10);
+ }
 }
 function closeModal(){document.getElementById('modal-root').innerHTML='';document.body.classList.remove('modal-open');currentModal='';draftCart=[];draftSaleFields={};}
 const field=(name,label,value='',type='text',extras='')=>`<div class="field"><label for="f-${name}">${esc(label)}</label><input class="input" id="f-${name}" name="${name}" type="${type}" value="${attr(value)}" ${extras}/></div>`;
 const selectField=(name,label,options,extra='')=>`<div class="field"><label for="f-${name}">${esc(label)}</label><select class="select" id="f-${name}" name="${name}" ${extra}>${options}</select></div>`;
 function productModal(id=''){
- const p=prod(id)||{};const categories=CATEGORIES.map(c=>`<option ${p.category===c?'selected':''}>${c}</option>`).join('');
+ const p=prod(id)||{};
+ const categories=CATEGORIES.map(c=>`<option ${p.category===c?'selected':''}>${c}</option>`).join('');
  const tracking=`<option value="serial" ${p.tracking==='serial'||!p.tracking?'selected':''}>Por IMEI / número de série</option><option value="quantity" ${p.tracking==='quantity'?'selected':''}>Por quantidade</option>`;
- modalFrame(id?'Editar produto':'Novo produto','Cadastre o modelo uma única vez. As unidades entram em Entradas.',`<input type="hidden" name="id" value="${attr(id)}"/><div class="fields mobile-one">${field('name','Nome do produto *',p.name,'text','required maxlength="130"')}${field('brand','Marca',p.brand,'text','maxlength="70"')}<div class="field"><label for="f-supplierName">Fornecedor principal</label><input class="input" id="f-supplierName" name="supplierName" type="text" maxlength="130" list="supplier-names" autocomplete="off" placeholder="Digite o nome do fornecedor" value="${attr(supplier(p.defaultSupplierId)?.name||'')}"/><datalist id="supplier-names">${db.suppliers.map(s=>`<option value="${attr(s.name)}"></option>`).join('')}</datalist><div class="helper">Pode digitar um nome novo: será cadastrado automaticamente. Em Entradas, você pode escolher outro fornecedor.</div></div>${selectField('category','Categoria',categories)}${field('sku','Código / SKU',p.sku,'text','maxlength="50"')}${selectField('tracking','Controle de estoque',tracking,id?'':'')}${field('minStock','Alerta de estoque mínimo',p.minStock??0,'number','min="0" step="1"')}${field('cost','Custo padrão (R$)',p.cost??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}${field('price','Preço de venda padrão (R$)',p.price??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}</div><div class="tip margin-top">O custo real é informado em cada entrada e registrado na venda. O preço padrão é apenas uma sugestão.</div>${id?`<hr class="form-divider"/><div class="form-heading">Ações</div><button type="button" class="btn btn-danger btn-sm" data-action="delete-product" data-id="${attr(id)}">${icon('trash')} Excluir produto sem movimentação</button>`:''}`,'Salvar produto');
+ const actualQty=id?available(id).qty:0;
+ const heading=id?'Adicionar unidades ao estoque':'Quantidade inicial em estoque';
+ const stockFields=`<section class="initial-stock-box" aria-label="Entrada inicial ou adicional de estoque">
+   <div class="initial-stock-heading">${icon('box')} <strong>${heading}</strong></div>
+   ${id?`<div class="current-stock">Estoque disponível agora: <strong>${actualQty} un.</strong></div>`:''}
+   <div class="fields mobile-one">
+     ${field('addQuantity',id?'Quantidade para adicionar':'Quantidade inicial',0,'number','min="0" step="1" inputmode="numeric"')}
+     <div class="field" id="product-serials-wrap"><label for="f-addSerials">IMEIs / números de série (um por linha)</label><textarea class="textarea" id="f-addSerials" name="addSerials" rows="3" placeholder="Digite ou cole um IMEI por linha" autocapitalize="characters" spellcheck="false"></textarea><div class="helper">Obrigatório para cada unidade controlada por IMEI. Ao preencher, a quantidade é atualizada automaticamente.</div></div>
+   </div>
+   <div class="helper">Deixe a quantidade em 0 para ${id?'somente editar os dados do produto':'cadastrar o produto sem estoque'}. O custo informado acima será utilizado nesta entrada. Outras compras podem ser registradas em <strong>Entradas</strong>.</div>
+ </section>`;
+ modalFrame(id?'Editar produto':'Novo produto',id?'Edite os dados e, se quiser, adicione mais unidades.':'Cadastre o produto e suas unidades no mesmo formulário.',`<input type="hidden" name="id" value="${attr(id)}"/>
+ <div class="fields mobile-one">
+ ${field('name','Nome do produto *',p.name,'text','required maxlength="130"')}
+ ${field('brand','Marca',p.brand,'text','maxlength="70"')}
+ <div class="field"><label for="f-supplierName">Fornecedor principal</label><input class="input" id="f-supplierName" name="supplierName" type="text" maxlength="130" list="supplier-names" autocomplete="off" placeholder="Digite o nome do fornecedor" value="${attr(supplier(p.defaultSupplierId)?.name||'')}"/><datalist id="supplier-names">${db.suppliers.map(s=>`<option value="${attr(s.name)}"></option>`).join('')}</datalist><div class="helper">Digite um novo nome para cadastrá-lo. Em outras entradas é possível mudar o fornecedor.</div></div>
+ ${selectField('category','Categoria',categories)}
+ ${field('sku','Código / SKU',p.sku,'text','maxlength="50"')}
+ ${selectField('tracking','Controle de estoque',tracking)}
+ ${field('minStock','Alerta de estoque mínimo',p.minStock??0,'number','min="0" step="1" inputmode="numeric"')}
+ ${field('cost','Custo de compra por unidade (R$)',p.cost??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
+ ${field('price','Preço de venda sugerido (R$)',p.price??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
+ </div>
+ ${stockFields}
+ ${id?`<hr class="form-divider"/><button type="button" class="btn btn-danger btn-sm" data-action="delete-product" data-id="${attr(id)}">${icon('trash')} Excluir produto sem movimentação</button>`:''}`,'Salvar produto');
  document.getElementById('modal-form').dataset.form='product';
+ productTrackingChange();
+}
+function productTrackingChange(){
+ const f=document.getElementById('modal-form');
+ if(!f||f.dataset.form!=='product')return;
+ const serial=f.elements.tracking.value==='serial';
+ const wrap=document.getElementById('product-serials-wrap');
+ if(wrap)wrap.classList.toggle('hidden',!serial);
+}
+function productSerialsInput(){
+ const form=document.getElementById('modal-form');if(form?.dataset.form!=='product'||form.elements.tracking.value!=='serial')return;
+ const raw=String(form.elements.addSerials?.value||'');
+ const serials=raw.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
+ if(serials.length)form.elements.addQuantity.value=String(serials.length);
 }
 function entryModal(preselected=''){
  if(!db.products.length){toast('Cadastre um produto antes de registrar entradas.','error');productModal();return;}
@@ -344,15 +387,33 @@ function saveForm(ev){
  const mode=form.dataset.form;const fd=new FormData(form);
  try{
  if(mode==='product'){
-  const id=String(fd.get('id')||''),name=required(fd,'name','o nome do produto');const tracking=String(fd.get('tracking'));
-  const sku=String(fd.get('sku')||'').trim();if(sku&&db.products.some(p=>p.sku.toLowerCase()===sku.toLowerCase()&&p.id!==id))throw Error('Este SKU já pertence a outro produto.');
+  const id=String(fd.get('id')||''),name=required(fd,'name','o nome do produto'),tracking=String(fd.get('tracking'));
+  const sku=String(fd.get('sku')||'').trim();
+  if(sku&&db.products.some(p=>p.sku.toLowerCase()===sku.toLowerCase()&&p.id!==id))throw Error('Este SKU já pertence a outro produto.');
   const minStock=numericField(fd,'minStock');if(!Number.isInteger(minStock))throw Error('Estoque mínimo precisa ser inteiro.');
   const record={name,brand:String(fd.get('brand')||'').trim(),category:String(fd.get('category')),sku,tracking,minStock,cost:numericField(fd,'cost'),price:numericField(fd,'price')};
   const defaultSupplierName=String(fd.get('supplierName')||'').trim();
   if(!['serial','quantity'].includes(tracking))throw Error('Tipo de controle inválido.');
   if(defaultSupplierName.length>130)throw Error('Nome do fornecedor muito longo.');
-  if(id){const p=prod(id);if(!p)throw Error('Produto não encontrado.');if(p.tracking!==tracking&&(db.entries.some(e=>e.productId===id)||db.sales.some(s=>s.items.some(i=>i.productId===id))))throw Error('Não é possível mudar o tipo de controle após uma movimentação.');commit(copy=>{const defaultSupplierId=getOrCreateSupplier(copy,defaultSupplierName);Object.assign(byId(copy.products,id),record,{defaultSupplierId});},'Produto atualizado.');}
-  else commit(copy=>{const defaultSupplierId=getOrCreateSupplier(copy,defaultSupplierName);copy.products.push({id:uid(),...record,defaultSupplierId,createdAt:new Date().toISOString()});},'Produto cadastrado.');
+  if(id){const p=prod(id);if(!p)throw Error('Produto não encontrado.');if(p.tracking!==tracking&&(db.entries.some(e=>e.productId===id)||db.sales.some(s=>s.items.some(i=>i.productId===id))))throw Error('Não é possível mudar o tipo de controle após uma movimentação.');}
+  const addQuantity=numericField(fd,'addQuantity');
+  if(!Number.isInteger(addQuantity)||addQuantity<0||addQuantity>100000)throw Error('Informe uma quantidade inteira de 0 a 100.000.');
+  const serials=String(fd.get('addSerials')||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
+  if(tracking==='serial'){
+   if(serials.length!==addQuantity)throw Error(addQuantity>0?`Para adicionar ${addQuantity} unidade(s), informe exatamente ${addQuantity} IMEI(s)/número(s) de série.`:'Informe uma quantidade maior que zero junto com os IMEIs, ou apague a lista.');
+   if(new Set(serials.map(x=>x.toUpperCase())).size!==serials.length)throw Error('Há IMEIs/números de série repetidos na lista.');
+   const usedSerials=new Set(db.entries.flatMap(e=>e.serials||[]).map(x=>String(x).toUpperCase()));
+   if(serials.some(x=>usedSerials.has(x.toUpperCase())))throw Error('Um IMEI/número de série já consta no histórico de estoque.');
+  }
+  const now=new Date().toISOString();
+  commit(copy=>{
+   const defaultSupplierId=getOrCreateSupplier(copy,defaultSupplierName);
+   const productId=id||uid();
+   if(id)Object.assign(byId(copy.products,id),record,{defaultSupplierId});
+   else copy.products.push({id:productId,...record,defaultSupplierId,createdAt:now});
+   // Uma única gravação: produto e movimentação entram juntos, sem estoque fictício.
+   if(addQuantity>0)copy.entries.push({id:uid(),productId,supplierId:defaultSupplierId,date:localDate(),quantity:addQuantity,unitCost:record.cost,serials:tracking==='serial'?serials:[],notes:id?'Entrada adicional pelo cadastro do produto':'Estoque inicial cadastrado com o produto',createdAt:now});
+  },id?(addQuantity>0?`Produto atualizado e ${addQuantity} unidade(s) adicionada(s).`:'Produto atualizado.'):(addQuantity>0?`Produto cadastrado com ${addQuantity} unidade(s) em estoque.`:'Produto cadastrado (sem unidades em estoque).'));
  }
  else if(mode==='entry'){
   const productId=required(fd,'productId','o produto'),p=prod(productId);if(!p)throw Error('Produto inválido.');
@@ -514,16 +575,28 @@ document.addEventListener('submit',saveForm);
 document.addEventListener('change',e=>{
  if(e.target.matches('#import-file')){importDB(e.target.files?.[0]);return;}
  if(e.target.matches('[data-entry-product]')){entryTrackingChange();return;}
+ if(e.target.matches('#f-tracking')){productTrackingChange();return;}
  if(e.target.matches('#cart-product')){cartProductChange();return;}
  if(e.target.matches('[data-warranty-sale]')){warrantySaleChange();return;}
  if(e.target.matches('[data-filter]')){if(e.target.dataset.filter==='stock')stockFilter=e.target.value;else saleFilter=e.target.value;render();}
 });
 document.addEventListener('input',e=>{
+ if(e.target.matches('#f-addSerials'))productSerialsInput();
  if(e.target.matches('#f-unitCost, #f-supplierId'))e.target.dataset.edited='1';
  if(e.target.matches('[data-search]')){
   query=e.target.value;const start=e.target.selectionStart,end=e.target.selectionEnd;render();const input=document.querySelector('[data-search]');if(input){input.focus();input.setSelectionRange(start,end);}
  }
 });
+// iOS: quando o teclado virtual reduz a área visível, mantenha o rodapé do formulário acima dele.
+function syncKeyboardInset(){
+ const vv=window.visualViewport;
+ const inset=vv&&Math.abs(vv.scale-1)<0.05?Math.max(0,window.innerHeight-vv.height-vv.offsetTop):0;
+ document.documentElement.style.setProperty('--keyboard-inset',`${Math.round(inset)}px`);
+}
+window.visualViewport?.addEventListener('resize',syncKeyboardInset);
+window.visualViewport?.addEventListener('scroll',syncKeyboardInset);
+window.addEventListener('resize',syncKeyboardInset);
+syncKeyboardInset();
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&currentModal){closeModal();}});
 document.addEventListener('click',e=>{if(e.target.matches('[data-backdrop]'))closeModal();});
 render();

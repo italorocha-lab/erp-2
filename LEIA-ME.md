@@ -1,6 +1,17 @@
-# Ítalo ERP 2.0 — protótipo PWA local
+# Ítalo ERP 2.1 — protótipo PWA local
 
 Aplicação simples para testar gestão de eletrônicos no iPhone e no computador. Funciona sem dependências, sem API e sem banco de dados remoto. **Não substitui o ERP original.**
+
+## Atualização 2.1 (21/10/2026)
+
+- O campo **Fornecedor principal** aparece no cadastro/edição de produtos. Você pode digitar o nome; se for novo, ele é criado automaticamente em Fornecedores, sem duplicar nomes equivalentes.
+- Na tela **Entradas**, um fornecedor padrão pode vir preenchido a partir do produto; também é possível informar um novo fornecedor diretamente na entrada. O fornecedor real da compra pertence à entrada e pode diferir do fornecedor principal do produto.
+- Os pop-ups, inclusive a **Nova venda**, agora têm conteúdo rolável no iPhone e rodapé de ações fixo e alcançável.
+- Ao adicionar/remover itens da venda, o aplicativo preserva a posição de rolagem.
+- O cache PWA mudou de versão para atualizar os arquivos no navegador.
+- A chave de armazenamento e o formato do backup continuam **os mesmos**. Os produtos antigos permanecem válidos e podem receber um fornecedor principal na edição.
+
+**Antes de atualizar:** salve um backup em Configurações; depois substitua os arquivos do repositório, mantendo o endereço do site. Não exclua dados do Safari para forçar atualização.
 
 ## Como testar
 

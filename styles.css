@@ -50,3 +50,55 @@ html,body{width:100%;overflow-x:hidden;}
  .page-top,.filter-line{min-width:0;}
  .main{min-width:0;}
 }
+
+/* Ítalo ERP 2.3 — uso enxuto em celular */
+.kpi-link{display:block;text-align:left;width:100%;font:inherit;color:inherit;cursor:pointer;appearance:none;-webkit-appearance:none;transition:border-color .15s,transform .1s;}
+.kpi-link:hover{border-color:#9bbafa;}
+.kpi-link:active{transform:scale(.985);}
+.kpi-link .kpi-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.kpi-link .kpi-foot .ic{width:14px;height:14px;color:#275de6;}
+.simple-actions{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+.activity-button{width:calc(100% - 38px);margin:0 19px;border:0;background:transparent;text-align:left;cursor:pointer;}
+.activity-button:hover{background:#f9fbff;}
+.simple-backup-note{display:flex;gap:8px;align-items:center;font-size:12px;color:#7d8b9e;margin:18px 3px 0;line-height:1.45;}
+.simple-backup-note .ic{width:17px;height:17px;}
+.simple-form{display:grid;gap:15px;max-width:570px;margin:0 auto;}
+.simple-form .field{gap:7px;}
+.simple-form .field label{font-size:13px;line-height:1.35;}
+.simple-form .field .helper,.simple-form>.helper{font-size:12px;line-height:1.45;color:#75849a;}
+.simple-form .textarea{min-height:82px;resize:vertical;}
+.simple-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}
+.existing-qty{padding:10px 12px;border-radius:10px;background:#eef4ff;color:#465d80;font-size:13px;line-height:1.5;}
+.sale-availability{padding:10px 12px;border-radius:10px;background:#eef4ff;color:#315996;font-size:12px;}
+.serial-select-list{display:grid;gap:8px;}
+.simple-sale-total{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:15px 0;border-top:1px solid var(--line);font-size:14px;font-weight:700;}
+.simple-sale-total strong{font-size:21px;color:#18345c;font-variant-numeric:tabular-nums;}
+.receipt-intro{display:flex;gap:8px;align-items:center;margin-bottom:12px;color:#087755;background:#edf9f3;border-radius:10px;padding:11px 12px;font-size:13px;font-weight:660;}
+.receipt-text{width:100%;min-height:280px;max-height:50dvh;font-family:ui-monospace,SFMono-Regular,Menlo,monospace!important;font-size:14px!important;line-height:1.65;white-space:pre;resize:vertical;}
+.btn-whatsapp{background:#158551;border-color:#158551;color:#fff;}
+.btn-whatsapp:hover{background:#107244;}
+.receipt-modal .modal-footer>button[data-action="close-modal"]{display:none;}
+.period-reset{margin-bottom:12px;}
+.receivable-total{background:#fff;border-radius:14px;border:1px solid var(--line);padding:18px 20px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;gap:12px;color:#6b7c92;font-size:13px;}
+.receivable-total strong{color:#182944;font-size:22px;}
+.receive-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);}
+.receive-row:last-child{border:0;}
+.receive-copy{display:grid;gap:5px;min-width:0;font-size:13px;}
+.receive-copy>small{color:#7a899e;font-size:11px;line-height:1.4;}
+.receive-copy>span{font-size:12px;}
+@media(max-width:760px){
+ .grid-kpis{gap:9px;}
+ .kpi-link{padding:13px 12px;}
+ .kpi-link .kpi-value{white-space:normal;overflow-wrap:anywhere;font-size:18px;letter-spacing:-.5px;}
+ .kpi-link .kpi-foot{font-size:10px;}
+ .simple-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+ .simple-actions>.btn{white-space:normal;padding:9px 8px;}
+ .simple-form{gap:14px;}
+ .simple-two{grid-template-columns:1fr;}
+ .modal-footer{justify-content:flex-end;}
+ .receipt-modal .modal-footer{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+ .receipt-modal .modal-footer>button{min-width:0;padding:9px 6px;white-space:normal;}
+ .receipt-modal .modal-footer>button[data-action="whatsapp-receipt"]{grid-column:span 2;grid-row:1;}
+ .receive-row{padding:14px;}
+ .receivable-total{padding:15px;}
+}

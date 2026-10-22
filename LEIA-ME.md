@@ -1,46 +1,31 @@
-# Ítalo ERP 2.2 — versão de testes para iPhone
+# Ítalo ERP 2.3 — simples para iPhone
 
-ERP local-first (HTML/CSS/JavaScript) para testes de operação. Os dados são salvos somente no navegador pelo `localStorage`. Não tem backend, login seguro nem sincronização entre dispositivos.
+Esta atualização foi feita a partir da versão 2.2, mantendo os mesmos arquivos, a mesma chave do LocalStorage (`italo_erp_v2_db`) e o mesmo formato de banco de dados (`schemaVersion: 2`). **Não precisa apagar os dados existentes.**
 
-## Correções da versão 2.2
+## Novidades
 
-1. **Quantidade no cadastro:** Novo produto permite registrar estoque inicial imediatamente, sem mudar de tela. Na edição, o campo **Quantidade para adicionar** cria uma nova entrada e não substitui o estoque atual. A tela mostra o saldo atual. Deixar **0** salva apenas a ficha.
-2. **Controle por IMEI:** Quando o produto está configurado **Por IMEI / número de série**, informe um IMEI por linha. A quantidade é automaticamente ajustada à contagem de linhas. O sistema exige um IMEI por unidade e bloqueia números repetidos no histórico. Para produtos que não têm IMEI, selecione **Por quantidade**.
-3. **Fornecedores:** O fornecedor informado na ficha fica ligado à nova entrada criada pelo cadastro; outros fornecedores podem ser escolhidos no fluxo **Entradas**.
-4. **Zoom e teclado do iPhone:** Campos agora usam tamanho de fonte de no mínimo 16px para evitar o zoom automático do Safari. O app não foca automaticamente o primeiro campo no celular. O rodapé do modal continua fixo, e o formulário tem rolagem própria; uma adaptação de altura usa a área visível quando o teclado é aberto. O zoom manual do iPhone permanece disponível.
-5. **Persistência:** Produto e entrada inicial são gravados juntos na mesma operação de armazenamento; os registros são considerados na venda e no lucro estimado.
+- **Adicionar produto:** nome, marca, IMEI/série (opcional, um por linha), quantidade, fornecedor, custo unitário e garantia em meses. Ao salvar, o estoque já recebe a quantidade. Para produtos com número de série, a quantidade acompanha a lista de números inseridos.
+- **Editar produto:** a quantidade digitada significa **unidades adicionais**, não o total. Exemplo: 3 unidades atuais + 2 novas = 5.
+- **Venda rápida:** digitar o nome do cliente diretamente, escolher um produto do estoque e a quantidade, definir preço, despesas extras, garantia do comprador e forma de pagamento. Escolher o IMEI no caso de produtos rastreados individualmente. Não há nova opção de venda sob encomenda.
+- **A receber:** por padrão, a venda é considerada paga. Para valor não recebido, digite **0** no campo "Valor recebido"; para pagamento parcial, informe quanto já entrou. O saldo aparece na tela "A receber".
+- **Recibo em texto:** gerado após salvar a venda; também fica acessível nos detalhes da venda. Botões para copiar ou abrir o WhatsApp com o texto preenchido. O cliente é selecionado no WhatsApp, sem necessidade de cadastrar seu número no ERP.
+- **Indicadores clicáveis na tela inicial:** vendas do mês → vendas filtradas; lucro → financeiro; estoque → estoque; a receber → vendas com saldo pendente.
+- **Interface iPhone:** campos com 16 px ou mais para evitar o zoom automático do Safari; formulários com rolagem e botão de salvar visível.
 
-## Atualização no GitHub Pages
+## Como publicar no GitHub Pages
 
-1. **ANTES DE ATUALIZAR, faça backup:** no ERP existente, abra **Mais → Configurações → Baixar backup** e guarde o arquivo JSON fora do Safari.
-2. Extraia o ZIP. Envie para a raiz do **mesmo repositório** os arquivos `index.html`, `styles.css`, `app.js`, `service-worker.js`, `manifest.webmanifest` e os três ícones PNG, substituindo as versões anteriores.
-3. Acesse o endereço de sempre no Safari e atualize a página. O cache do PWA foi incrementado para `v3`. Se o ícone da tela inicial ainda exibir a versão antiga, abra primeiro o site no Safari, atualize, feche o app instalado e abra novamente. **Não apague os dados do site, nem desinstale o PWA para forçar a atualização.**
-4. Não é necessário importar backup na atualização normal no **mesmo endereço/navegador**. A chave `italo_erp_v2_db` e a estrutura de dados `schemaVersion:2` não foram alteradas.
+1. **Faça backup no ERP atual** em **Mais → Configurações → Exportar backup**. Guarde o JSON no iCloud Drive ou no computador.
+2. Extraia este ZIP.
+3. Substitua **todos os arquivos** no mesmo repositório GitHub Pages em que você está testando o ERP 2.2 (inclusive `service-worker.js`). Não apague o repositório nem mude a URL atual.
+4. Aguarde a implantação do GitHub Pages e atualize o Safari. Feche e reabra o web app instalado, se houver.
+5. Teste com dados fictícios. Não limpe dados do Safari e não desinstale o app enquanto quiser preservar o conteúdo local.
 
-## Como testar o produto do print que está com zero unidades
+## Observações importantes
 
-- Vá em **Estoque**, toque no lápis do produto **Teste**.
-- Desça até **Adicionar unidades ao estoque**. O saldo atual será mostrado (por exemplo, **0 un.**).
-- No campo **Quantidade para adicionar**, informe, por exemplo, `2`.
-- Se o controle do produto for **Por quantidade**, não será necessário informar IMEI. Se for **Por IMEI**, preencha 2 IMEIs diferentes, um por linha.
-- Confira o **Custo de compra por unidade** e o fornecedor, então toque em **Salvar produto**.
-- A lista exibirá **2 un.**. Em **Vendas → Nova venda**, o produto estará disponível.
-
-**Atenção:** se você editar um produto com 2 unidades em estoque e informar mais 3 em **Quantidade para adicionar**, o saldo passará para 5; essa operação não serve para corrigir/remover saldos. Para entradas subsequentes, também pode usar o botão `+` do estoque e a tela **Entradas**.
-
-## Limitações
-
-- Dados em `localStorage` são isolados por navegador, perfil e origem do site; **não** sincronizam do PC para o iPhone.
-- Limpar dados do Safari ou certas políticas de armazenamento podem remover registros. Exporte backups frequentemente.
-- Nenhuma alteração foi feita no ERP original publicado em `/sistema/`.
-- Esta versão foi testada no Chromium com emulação de viewport móvel, não no Safari físico. Verifique foco, rolagem e comportamento do teclado no seu iPhone após publicar.
-- Vendas concluídas exigem saldo em estoque. Encomendas podem ser registradas sem estoque físico e concluídas depois de receber os produtos.
-
-## Estrutura
-
-- `index.html`: estrutura HTML e metadados PWA
-- `styles.css`: interface responsiva
-- `app.js`: regra de negócio, operações de estoque/venda e persistência
-- `service-worker.js`: cache de instalação/offline
-- `manifest.webmanifest`: dados de instalação
-- ícones: `icon-180.png`, `icon-192.png`, `icon-512.png`
+- O sistema usa **somente LocalStorage** neste momento. Não há sincronização de dados entre iPhone e computador. O armazenamento pode ser perdido por limpeza de dados ou políticas do navegador.
+- Não há login ou banco de dados no servidor. Use a versão como protótipo de testes e faça backup com frequência.
+- Backups feitos nas versões 2.0, 2.1 e 2.2 continuam importáveis porque o formato interno do banco foi preservado.
+- Vendas antigas, inclusive encomendas criadas anteriormente, permanecem no histórico; novas encomendas não podem ser criadas pela tela simplificada.
+- O recibo é um comprovante comercial simples, não substitui documento fiscal quando obrigatório.
+- O prazo de garantia cadastrado é apenas uma informação registrada pelo lojista; **não reduz garantias e direitos previstos em lei**.
+- A métrica de lucro é gerencial/estimada e não substitui apuração contábil. Acesso via iPhone ainda requer testes no próprio Safari, além dos testes automatizados feitos em Chromium com viewport móvel.

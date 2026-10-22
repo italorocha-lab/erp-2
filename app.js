@@ -55,13 +55,14 @@ const arrays = ['products','entries','sales','clients','suppliers','expenses','w
 function validDB(o){return o && typeof o==='object' && o.schemaVersion===VERSION && arrays.every(k=>Array.isArray(o[k])) && o.settings && typeof o.settings==='object';}
 let db; let storageError='';
 try{ const value=localStorage.getItem(KEY); const parsed=value?JSON.parse(value):initial(); if(!validDB(parsed)) throw Error('Estrutura de dados incompatível.'); db=parsed; }catch(e){db=initial();storageError='Não foi possível ler os dados locais: '+e.message;}
-let view='dashboard';let query='';let stockFilter='todos';let saleFilter='todos';let draftCart=[];let draftMode='concluida';let draftSaleFields={};let currentModal='';
+let view='dashboard';let query='';let stockFilter='todos';let saleFilter='todos';let onlyCurrentMonth=false;let draftCart=[];let draftMode='concluida';let draftSaleFields={};let currentModal='';
 const byId = (array,id) => array.find(x=>x.id===id);
 const prod = id => byId(db.products,id);
 const client = id => byId(db.clients,id);
 const supplier = id => byId(db.suppliers,id);
 const prodName = id => prod(id)?.name || 'Produto removido';
 const clientName = id => client(id)?.name || 'Consumidor não informado';
+const saleClientName = s => String(s?.customerName || clientName(s?.clientId)).trim() || 'Consumidor não informado';
 const supplierName = id => supplier(id)?.name || 'Não informado';
 // O nome pode ser digitado na ficha do produto ou na entrada; fornecedores iguais são reutilizados.
 function getOrCreateSupplier(data, rawName){
@@ -157,39 +158,47 @@ const NAV=[['dashboard','Início','home'],['stock','Estoque','box'],['sales','Ve
 function navRender(){
  const active= ['clients','suppliers','entries','warranties','settings'].includes(view)?'more':view;
  const all=[...NAV.slice(0,4),['entries','Entradas','layers'],['clients','Clientes','users'],['suppliers','Fornecedores','truck'],['warranties','Garantias','shield'],['settings','Configurações','settings']];
- document.getElementById('sidebar').innerHTML=`<div class="brand"><div class="brand-mark">IR</div><div><div class="brand-name">Ítalo ERP</div><div class="brand-sub">Gestão simples · v2.2</div></div></div><div class="side-group-title">PRINCIPAL</div>${all.map(([id,label,ico],i)=>`${i===4?'<div class="side-group-title">GERENCIAMENTO</div>':''}<button class="menu-btn ${view===id?'active':''}" data-action="nav" data-view="${id}">${icon(ico)}${esc(label)}</button>`).join('')}<div class="side-foot"><span class="dot"></span> Dados locais neste aparelho</div>`;
+ document.getElementById('sidebar').innerHTML=`<div class="brand"><div class="brand-mark">IR</div><div><div class="brand-name">Ítalo ERP</div><div class="brand-sub">Gestão simples · v2.3</div></div></div><div class="side-group-title">PRINCIPAL</div>${all.map(([id,label,ico],i)=>`${i===4?'<div class="side-group-title">GERENCIAMENTO</div>':''}<button class="menu-btn ${view===id?'active':''}" data-action="nav" data-view="${id}">${icon(ico)}${esc(label)}</button>`).join('')}<div class="side-foot"><span class="dot"></span> Dados locais neste aparelho</div>`;
  document.getElementById('bottom-nav').innerHTML=NAV.map(([id,label,ico])=>`<button class="bottom-btn ${active===id?'active':''}" data-action="nav" data-view="${id}" ${active===id?'aria-current="page"':''}>${icon(ico)}<span>${label}</span></button>`).join('');
 }
-function render(){navRender();const main=document.getElementById('main'); const pages={dashboard:renderDashboard,stock:renderStock,sales:renderSales,finance:renderFinance,more:renderMore,clients:()=>renderPersons('clients'),suppliers:()=>renderPersons('suppliers'),entries:renderEntries,warranties:renderWarranties,settings:renderSettings}; main.innerHTML=(pages[view]||renderDashboard)();}
+function render(){navRender();const main=document.getElementById('main'); const pages={dashboard:renderDashboard,stock:renderStock,sales:renderSales,finance:renderFinance,more:renderMore,clients:()=>renderPersons('clients'),suppliers:()=>renderPersons('suppliers'),entries:renderEntries,warranties:renderWarranties,settings:renderSettings,receivables:renderReceivables}; main.innerHTML=(pages[view]||renderDashboard)();}
 function renderDashboard(){
- const m=metrics(),recent=completed().slice().sort((a,b)=>String(saleEffectiveDate(b)).localeCompare(String(saleEffectiveDate(a)))).slice(0,5);
- const months=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];let d=new Date();
- const days=Array.from({length:7},(_,i)=>{const x=new Date(d.getFullYear(),d.getMonth(),d.getDate()-(6-i));const date=localDate(x);return {label:['dom','seg','ter','qua','qui','sex','sáb'][x.getDay()],total:completed().filter(s=>saleEffectiveDate(s)===date).reduce((sum,s)=>sum+saleTotal(s),0)};});
- const max=Math.max(1,...days.map(d=>d.total)); const lows=db.products.filter(p=>p.minStock>0&&available(p.id).qty<=p.minStock);
- return top('Visão geral','Um resumo de tudo que acontece na sua loja.',`<button class="btn" data-action="export">${icon('download')}<span class="label-wide">Backup</span></button>`,`${months[d.getMonth()]} DE ${d.getFullYear()}`)+
- `<section class="hero"><div><div class="hero-label">PAINEL DE CONTROLE</div><h2>Seu negócio, na palma da mão.</h2><p>Cadastre, venda e acompanhe seus resultados em poucos toques.</p></div><button class="btn" data-action="open-sale">${icon('plus')} Nova venda</button></section>`+
+ const m=metrics();
+ const recent=completed().slice().sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date))).slice(0,5);
+ const kpis=[
+  ['Vendas do mês',money(m.revenue),`${m.sales.length} venda(s)`, 'cart','kpi-sales',''],
+  ['Lucro estimado',money(m.profit),'Resultado deste mês','trend','kpi-profit','green'],
+  ['Em estoque',nfmt(m.stock),`${money(m.stockValue)} em mercadorias`,'box','kpi-stock','amber'],
+  ['A receber',money(m.receivable),'Vendas com saldo pendente','wallet','kpi-receivables','red']
+ ];
+ return top('Início','Seu negócio em poucos toques.',`<button class="btn" data-action="export">${icon('download')}<span class="label-wide">Backup</span></button>`)+
  (storageError?`<div class="notice">${icon('warning')}<span>${esc(storageError)}</span></div>`:'')+
- `<section class="grid-kpis"><div class="kpi"><div class="kpi-top"><span class="kpi-label">Vendas do mês</span><span class="kpi-icon">${icon('cart')}</span></div><div class="kpi-value">${money(m.revenue)}</div><div class="kpi-foot">${m.sales.length} venda(s) concluída(s)</div></div>
- <div class="kpi"><div class="kpi-top"><span class="kpi-label">Resultado estimado</span><span class="kpi-icon green">${icon('trend')}</span></div><div class="kpi-value ${m.profit<0?'negative':''}">${money(m.profit)}</div><div class="kpi-foot">Após custos, despesas e garantias</div></div>
- <div class="kpi"><div class="kpi-top"><span class="kpi-label">Unidades em estoque</span><span class="kpi-icon amber">${icon('box')}</span></div><div class="kpi-value">${nfmt(m.stock)}</div><div class="kpi-foot">${money(m.stockValue)} em custo de compra</div></div>
- <div class="kpi"><div class="kpi-top"><span class="kpi-label">A receber</span><span class="kpi-icon red">${icon('wallet')}</span></div><div class="kpi-value">${money(m.receivable)}</div><div class="kpi-foot">${m.orders} encomenda(s) pendente(s)</div></div></section>`+
- `<div class="section-grid"><div class="stack"><div class="panel"><div class="panel-head"><div><h2 class="section-title">Movimento dos últimos 7 dias</h2><div class="section-note">Total vendido por dia, em R$</div></div></div><div class="panel-pad"><div class="bar-chart">${days.map(x=>`<div class="bar-col"><div class="bar-val">${x.total?money(x.total).replace('R$ ','').replace('R$ ',''):'—'}</div><div class="bar ${x.total?'':'zero'}" style="height:${Math.max(4,x.total/max*83)}%"></div><div class="bar-label">${x.label}</div></div>`).join('')}</div></div></div>
- <div class="panel"><div class="panel-head"><div><h2 class="section-title">Últimas vendas</h2><div class="section-note">Vendas mais recentes</div></div><button class="btn btn-link" data-action="nav" data-view="sales">Ver todas ${icon('arrow')}</button></div>${recent.length?recent.map(s=>`<div class="activity clickable" style="margin:0 19px" data-action="sale-detail" data-id="${attr(s.id)}"><div class="activity-icon">${icon('cart')}</div><div><div class="activity-title">${esc(clientName(s.clientId))}</div><div class="activity-sub">${esc(s.items.map(i=>i.productName).join(', '))} · ${dateText(saleEffectiveDate(s))}</div></div><div class="activity-right">${money(saleTotal(s))}</div></div>`).join(''):empty('Sem vendas ainda','Sua primeira venda aparecerá aqui.','open-sale','Registrar venda')}</div></div>
- <div class="stack"><div class="panel"><div class="panel-pad"><div class="mini-head"><h2 class="section-title">Acesso rápido</h2></div><div class="action-stack">${[['open-entry','Registrar entrada','layers'],['open-sale','Nova venda','cart'],['open-product','Cadastrar produto','box'],['open-warranty','Abrir garantia','shield']].map(([a,l,i])=>`<button class="action-tile" data-action="${a}"><span class="action-tile-left">${icon(i)}${esc(l)}</span>${icon('arrow')}</button>`).join('')}</div></div></div><div class="panel"><div class="panel-pad"><div class="mini-head"><h2 class="section-title">Atenção</h2>${m.orders+m.openWarranty+lows.length?b('Pendências','amber'):b('Tudo em dia','green')}</div>${[['Encomendas aguardando',m.orders,'sales'],['Garantias em andamento',m.openWarranty,'warranties'],['Produtos com estoque baixo',lows.length,'stock']].map(([l,n,v])=>`<div class="stat-pair"><span>${esc(l)}</span><button class="btn btn-link" data-action="nav" data-view="${v}"><strong>${n}</strong>${icon('arrow')}</button></div>`).join('')}</div></div></div></div>`+
- (!db.products.length?`<div class="notice info margin-top">${icon('info')}<span>Comece cadastrando um produto e uma entrada, ou carregue os <strong>dados de demonstração</strong> em Configurações para explorar o aplicativo.</span></div>`:'');
+ `<div class="grid-kpis">${kpis.map(([title,val,subtitle,ico,action,color])=>`<button class="kpi kpi-link" type="button" data-action="${action}" aria-label="Abrir ${esc(title)}"><div class="kpi-top"><span class="kpi-label">${esc(title)}</span><span class="kpi-icon ${color}">${icon(ico)}</span></div><div class="kpi-value">${esc(val)}</div><div class="kpi-foot">${esc(subtitle)} ${icon('arrow')}</div></button>`).join('')}</div>`+
+ `<div class="simple-actions"><button type="button" class="btn btn-primary" data-action="open-sale">${icon('plus')} Nova venda</button><button type="button" class="btn" data-action="open-product">${icon('plus')} Adicionar produto</button></div>`+
+ `<div class="panel"><div class="panel-head"><h2 class="section-title">Últimas vendas</h2><button class="btn btn-link" data-action="nav" data-view="sales">Ver todas ${icon('arrow')}</button></div>${recent.length?recent.map(s=>`<button class="activity activity-button" type="button" data-action="sale-detail" data-id="${attr(s.id)}"><div class="activity-icon">${icon('cart')}</div><div><div class="activity-title">${esc(saleClientName(s))}</div><div class="activity-sub">${esc(s.items.map(i=>i.productName).join(', '))} · ${dateText(saleEffectiveDate(s))}</div></div><div class="activity-right">${money(saleTotal(s))}</div></button>`).join(''):empty('Nenhuma venda ainda','Registre sua primeira venda.','open-sale','Nova venda')}</div>`+
+ `<p class="simple-backup-note">${icon('info')} Dados salvos neste aparelho. Faça backup regularmente em Mais → Configurações.</p>`;
 }
 function renderStock(){
- let rows=db.products.filter(p=>(p.name+' '+p.sku+' '+p.brand+' '+p.category).toLowerCase().includes(query.toLowerCase())).filter(p=>stockFilter==='todos'||(stockFilter==='baixo'&&p.minStock>0&&available(p.id).qty<=p.minStock)||(stockFilter==='disponivel'&&available(p.id).qty>0)||(stockFilter==='zerado'&&available(p.id).qty===0)).sort((a,b)=>a.name.localeCompare(b.name));
- return top('Estoque','Celulares por IMEI e acessórios por quantidade.',newButton('Novo produto','open-product'))+
- `<div class="filter-line"><div class="searchbox">${icon('search')}<input class="input" data-search="1" placeholder="Buscar modelo, SKU ou marca" value="${attr(query)}" aria-label="Buscar produtos"/></div><select class="select" data-filter="stock" aria-label="Filtrar estoque"><option value="todos" ${stockFilter==='todos'?'selected':''}>Todos os produtos</option><option value="disponivel" ${stockFilter==='disponivel'?'selected':''}>Com estoque</option><option value="baixo" ${stockFilter==='baixo'?'selected':''}>Estoque baixo</option><option value="zerado" ${stockFilter==='zerado'?'selected':''}>Sem estoque</option></select></div>`+
- `<div class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Produto</th><th>Tipo</th><th>Disponível</th><th>Preço padrão</th><th>Preço de custo</th><th class="right">Ações</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${pTitle(p)}</td><td>${esc(p.category)}</td><td>${stockBadge(p)}</td><td class="money">${money(p.price)}</td><td class="money">${money(p.cost)}</td><td class="right"><button class="btn btn-sm" data-action="open-entry" data-id="${attr(p.id)}">${icon('plus')} Entrada</button> <button class="btn btn-sm" data-action="edit-product" data-id="${attr(p.id)}">${icon('edit')}</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(p=>`<div class="list-card">${pTitle(p)}<div class="card-right"><div class="tr-main">${money(p.price)}</div>${stockBadge(p)}<div style="margin-top:7px"><button class="btn btn-sm" data-action="edit-product" data-id="${attr(p.id)}">${icon('edit')}</button><button class="btn btn-sm btn-soft" data-action="open-entry" data-id="${attr(p.id)}">${icon('plus')}</button></div></div></div>`).join('')}</div>`:empty('Nenhum produto encontrado','Cadastre um produto para começar a controlar as entradas.','open-product','Cadastrar produto')}</div>`;
+ const rows=db.products.filter(p=>(p.name+' '+p.sku+' '+p.brand+' '+(supplier(p.defaultSupplierId)?.name||'')).toLowerCase().includes(query.toLowerCase()))
+ .filter(p=>stockFilter==='todos'||(stockFilter==='baixo'&&p.minStock>0&&available(p.id).qty<=p.minStock)||(stockFilter==='disponivel'&&available(p.id).qty>0)||(stockFilter==='zerado'&&available(p.id).qty===0))
+ .sort((a,b)=>a.name.localeCompare(b.name));
+ return top('Estoque','Veja seus produtos e quantidades.',newButton('Adicionar produto','open-product'))+
+ `<div class="filter-line"><div class="searchbox">${icon('search')}<input class="input" data-search="1" placeholder="Buscar produto ou fornecedor" value="${attr(query)}" aria-label="Buscar produtos"/></div><select class="select" data-filter="stock" aria-label="Filtrar estoque"><option value="todos" ${stockFilter==='todos'?'selected':''}>Todos os produtos</option><option value="disponivel" ${stockFilter==='disponivel'?'selected':''}>Com estoque</option><option value="zerado" ${stockFilter==='zerado'?'selected':''}>Sem estoque</option></select></div>`+
+ `<div class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Produto</th><th>Disponível</th><th>Custo unitário</th><th>Garantia</th><th class="right">Ações</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${pTitle(p)}</td><td>${stockBadge(p)}</td><td class="money">${money(p.cost)}</td><td>${p.warrantyMonths??0} mês(es)</td><td class="right"><button class="btn btn-sm" data-action="edit-product" data-id="${attr(p.id)}">${icon('edit')} Editar / Entrada</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(p=>`<div class="list-card">${pTitle(p)}<div class="card-right"><div class="tr-main">${money(p.cost)} custo</div>${stockBadge(p)}<div class="quick-row"><button class="btn btn-sm btn-soft" data-action="edit-product" data-id="${attr(p.id)}">${icon('plus')} Entrada / Editar</button></div></div></div>`).join('')}</div>`:empty('Nenhum produto encontrado','Cadastre seu primeiro produto.','open-product','Adicionar produto')}</div>`;
 }
 const pTitle=p=>`<div class="item-with-logo"><div class="item-logo ${p.tracking==='serial'?'':'violet'}">${esc(p.name.substring(0,2).toUpperCase())}</div><div><div class="item-name">${esc(p.name)}</div><div class="item-meta">${esc(p.brand||p.category)}${p.sku?' · '+esc(p.sku):''}</div>${p.defaultSupplierId?`<div class="item-meta">Fornecedor: ${esc(supplierName(p.defaultSupplierId))}</div>`:''}</div></div>`;
 const stockBadge=p=>{const q=available(p.id).qty;return b(`${q} un.`,q===0?'red':p.minStock>0&&q<=p.minStock?'amber':'green');};
 function saleBadge(s){return s.status==='concluida'?b('Concluída','green'):s.status==='encomenda'?b('Encomenda','amber'):b('Cancelada','red');}
 function renderSales(){
- const rows=db.sales.filter(s=>saleFilter==='todos'||s.status===saleFilter).filter(s=>(clientName(s.clientId)+' '+(s.items||[]).map(i=>i.productName+' '+i.serials.join(' ')).join(' ')).toLowerCase().includes(query.toLowerCase())).sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));
- return top('Vendas','Registre suas vendas e acompanhe encomendas.',newButton('Nova venda','open-sale'))+`<div class="filter-line"><div class="searchbox">${icon('search')}<input class="input" data-search="1" placeholder="Buscar cliente, produto ou IMEI" value="${attr(query)}" aria-label="Buscar vendas"/></div><select class="select" data-filter="sales" aria-label="Filtrar vendas"><option value="todos" ${saleFilter==='todos'?'selected':''}>Todas as vendas</option><option value="concluida" ${saleFilter==='concluida'?'selected':''}>Concluídas</option><option value="encomenda" ${saleFilter==='encomenda'?'selected':''}>Encomendas</option><option value="cancelada" ${saleFilter==='cancelada'?'selected':''}>Canceladas</option></select></div><div class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Cliente / Itens</th><th>Data</th><th>Valor</th><th>Resultado estimado</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td><div class="tr-main">${esc(clientName(s.clientId))}</div><div class="tr-sub">${esc(s.items.map(i=>i.productName+(i.quantity>1?' x'+i.quantity:'')).join(', '))}</div></td><td>${dateText(saleEffectiveDate(s))}</td><td class="money">${money(saleTotal(s))}</td><td class="money ${s.status==='concluida'?'positive':''}">${s.status==='concluida'?money(saleProfit(s)):'—'}</td><td>${saleBadge(s)}</td><td><button class="btn btn-sm" data-action="sale-detail" data-id="${attr(s.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(s=>`<div class="list-card clickable" data-action="sale-detail" data-id="${attr(s.id)}"><div class="item-with-logo"><div class="item-logo">${icon('cart')}</div><div><div class="item-name">${esc(clientName(s.clientId))}</div><div class="item-meta">${esc(s.items.map(i=>i.productName).join(', '))}</div><div class="item-meta">${dateText(saleEffectiveDate(s))}</div></div></div><div class="card-right"><div class="tr-main">${money(saleTotal(s))}</div>${saleBadge(s)}</div></div>`).join('')}</div>`:empty('Nenhuma venda encontrada','Registre uma venda ou encomenda.','open-sale','Nova venda')}</div>`;
+ const rows=db.sales.filter(s=>saleFilter==='todos'||s.status===saleFilter).filter(s=>!onlyCurrentMonth||toMonth(saleEffectiveDate(s))===monthKey).filter(s=>(saleClientName(s)+' '+(s.items||[]).map(i=>i.productName+' '+(i.serials||[]).join(' ')).join(' ')).toLowerCase().includes(query.toLowerCase())).sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));
+ return top('Vendas',onlyCurrentMonth?'Vendas concluídas neste mês.':'Histórico de vendas.',newButton('Nova venda','open-sale'))+(onlyCurrentMonth?`<button class="btn btn-soft period-reset" data-action="show-all-sales">Mostrar todas as vendas</button>`:'')+`<div class="filter-line"><div class="searchbox">${icon('search')}<input class="input" data-search="1" placeholder="Buscar cliente, produto ou IMEI" value="${attr(query)}" aria-label="Buscar vendas"/></div><select class="select" data-filter="sales" aria-label="Filtrar vendas"><option value="todos" ${saleFilter==='todos'?'selected':''}>Todas as vendas</option><option value="concluida" ${saleFilter==='concluida'?'selected':''}>Concluídas</option><option value="cancelada" ${saleFilter==='cancelada'?'selected':''}>Canceladas</option></select></div><div class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Cliente / Itens</th><th>Data</th><th>Valor</th><th>Resultado estimado</th><th>Status</th><th></th></tr></thead><tbody>${rows.map(s=>`<tr><td><div class="tr-main">${esc(saleClientName(s))}</div><div class="tr-sub">${esc(s.items.map(i=>i.productName+(i.quantity>1?' x'+i.quantity:'')).join(', '))}</div></td><td>${dateText(saleEffectiveDate(s))}</td><td class="money">${money(saleTotal(s))}</td><td class="money ${s.status==='concluida'?'positive':''}">${s.status==='concluida'?money(saleProfit(s)):'—'}</td><td>${saleBadge(s)}</td><td><button class="btn btn-sm" data-action="sale-detail" data-id="${attr(s.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(s=>`<div class="list-card clickable" data-action="sale-detail" data-id="${attr(s.id)}"><div class="item-with-logo"><div class="item-logo">${icon('cart')}</div><div><div class="item-name">${esc(saleClientName(s))}</div><div class="item-meta">${esc(s.items.map(i=>i.productName).join(', '))}</div><div class="item-meta">${dateText(saleEffectiveDate(s))}</div></div></div><div class="card-right"><div class="tr-main">${money(saleTotal(s))}</div>${saleBadge(s)}</div></div>`).join('')}</div>`:empty('Nenhuma venda encontrada','Registre uma venda.','open-sale','Nova venda')}</div>`;
+}
+function renderReceivables(){
+ const rows=completed().filter(s=>saleTotal(s)-Number(s.amountPaid||0)>0.005).sort((a,b)=>String(b.date).localeCompare(String(a.date)));
+ const total=amount(rows.reduce((sum,s)=>sum+Math.max(0,saleTotal(s)-Number(s.amountPaid||0)),0));
+ return top('A receber','Vendas que ainda têm pagamento pendente.')+
+ `<div class="receivable-total">Total pendente <strong>${money(total)}</strong></div>`+
+ `<div class="panel">${rows.length?`<div class="receivable-list">${rows.map(s=>`<div class="receive-row"><div class="receive-copy"><strong>${esc(saleClientName(s))}</strong><small>${dateText(saleEffectiveDate(s))} · ${esc((s.items||[]).map(i=>i.productName).join(', '))}</small><span>Faltam <strong>${money(Math.max(0,saleTotal(s)-Number(s.amountPaid||0)))}</strong> de ${money(saleTotal(s))}</span></div><button type="button" class="btn btn-soft" data-action="receive-sale" data-id="${attr(s.id)}">Receber</button></div>`).join('')}</div>`:empty('Tudo recebido','Não há vendas com pagamentos pendentes.','open-sale','Nova venda')}</div>`;
 }
 function renderEntries(){
  const rows=db.entries.slice().sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));
@@ -221,7 +230,7 @@ function renderSettings(){
  <div class="settings-card">${icon('layers')}<h3>Dados de demonstração</h3><p>Preencha o ERP com exemplos fictícios de aparelhos, acessórios, vendas, clientes, entrada, despesa e garantia. Útil para testar as telas.</p><button class="btn" data-action="seed">${icon('plus')} Carregar demonstração</button></div>
  <div class="settings-card dangerzone">${icon('trash')}<h3>Apagar dados de teste</h3><p>Apaga os registros desta versão neste navegador. A operação não pode ser desfeita sem um backup.</p><button class="btn btn-danger" data-action="reset">${icon('trash')} Limpar todos os dados</button></div></div>
  <div class="notice margin-top">${icon('warning')}<span><strong>Atenção:</strong> LocalStorage não é um banco de dados seguro nem sincronizado. No Safari do iPhone, dados podem ser removidos ao limpar o histórico ou os dados do site, ou por políticas de armazenamento. Esta versão não tem login seguro e não deve ser usada para informações sensíveis. Faça backup antes de testes importantes.</span></div>
- <div class="panel panel-pad margin-top"><h2 class="section-title">Sobre a versão de testes</h2><p class="muted-block">ERP 2.2 · Dados armazenados sob a chave <code>${KEY}</code> · Modelo de dados v${VERSION}. Esta versão é independente do ERP original: os backups da versão antiga não são importados automaticamente.</p><div class="stat-pair"><span>Produtos</span><strong>${db.products.length}</strong></div><div class="stat-pair"><span>Entradas</span><strong>${db.entries.length}</strong></div><div class="stat-pair"><span>Vendas e encomendas</span><strong>${db.sales.length}</strong></div><div class="stat-pair"><span>Última alteração</span><strong>${esc(db.updatedAt?new Date(db.updatedAt).toLocaleString('pt-BR'):'—')}</strong></div></div>`;
+ <div class="panel panel-pad margin-top"><h2 class="section-title">Sobre a versão de testes</h2><p class="muted-block">ERP 2.3 · Dados armazenados sob a chave <code>${KEY}</code> · Modelo de dados v${VERSION}. Esta versão é independente do ERP original: os backups da versão antiga não são importados automaticamente.</p><div class="stat-pair"><span>Produtos</span><strong>${db.products.length}</strong></div><div class="stat-pair"><span>Entradas</span><strong>${db.entries.length}</strong></div><div class="stat-pair"><span>Vendas registradas</span><strong>${db.sales.length}</strong></div><div class="stat-pair"><span>Última alteração</span><strong>${esc(db.updatedAt?new Date(db.updatedAt).toLocaleString('pt-BR'):'—')}</strong></div></div>`;
 }
 function modalFrame(title,subtitle,fields,submitLabel='Salvar',size='',footer=''){
  currentModal=title;
@@ -238,48 +247,29 @@ const field=(name,label,value='',type='text',extras='')=>`<div class="field"><la
 const selectField=(name,label,options,extra='')=>`<div class="field"><label for="f-${name}">${esc(label)}</label><select class="select" id="f-${name}" name="${name}" ${extra}>${options}</select></div>`;
 function productModal(id=''){
  const p=prod(id)||{};
- const categories=CATEGORIES.map(c=>`<option ${p.category===c?'selected':''}>${c}</option>`).join('');
- const tracking=`<option value="serial" ${p.tracking==='serial'||!p.tracking?'selected':''}>Por IMEI / número de série</option><option value="quantity" ${p.tracking==='quantity'?'selected':''}>Por quantidade</option>`;
- const actualQty=id?available(id).qty:0;
- const heading=id?'Adicionar unidades ao estoque':'Quantidade inicial em estoque';
- const stockFields=`<section class="initial-stock-box" aria-label="Entrada inicial ou adicional de estoque">
-   <div class="initial-stock-heading">${icon('box')} <strong>${heading}</strong></div>
-   ${id?`<div class="current-stock">Estoque disponível agora: <strong>${actualQty} un.</strong></div>`:''}
-   <div class="fields mobile-one">
-     ${field('addQuantity',id?'Quantidade para adicionar':'Quantidade inicial',0,'number','min="0" step="1" inputmode="numeric"')}
-     <div class="field" id="product-serials-wrap"><label for="f-addSerials">IMEIs / números de série (um por linha)</label><textarea class="textarea" id="f-addSerials" name="addSerials" rows="3" placeholder="Digite ou cole um IMEI por linha" autocapitalize="characters" spellcheck="false"></textarea><div class="helper">Obrigatório para cada unidade controlada por IMEI. Ao preencher, a quantidade é atualizada automaticamente.</div></div>
-   </div>
-   <div class="helper">Deixe a quantidade em 0 para ${id?'somente editar os dados do produto':'cadastrar o produto sem estoque'}. O custo informado acima será utilizado nesta entrada. Outras compras podem ser registradas em <strong>Entradas</strong>.</div>
- </section>`;
- modalFrame(id?'Editar produto':'Novo produto',id?'Edite os dados e, se quiser, adicione mais unidades.':'Cadastre o produto e suas unidades no mesmo formulário.',`<input type="hidden" name="id" value="${attr(id)}"/>
- <div class="fields mobile-one">
- ${field('name','Nome do produto *',p.name,'text','required maxlength="130"')}
- ${field('brand','Marca',p.brand,'text','maxlength="70"')}
- <div class="field"><label for="f-supplierName">Fornecedor principal</label><input class="input" id="f-supplierName" name="supplierName" type="text" maxlength="130" list="supplier-names" autocomplete="off" placeholder="Digite o nome do fornecedor" value="${attr(supplier(p.defaultSupplierId)?.name||'')}"/><datalist id="supplier-names">${db.suppliers.map(s=>`<option value="${attr(s.name)}"></option>`).join('')}</datalist><div class="helper">Digite um novo nome para cadastrá-lo. Em outras entradas é possível mudar o fornecedor.</div></div>
- ${selectField('category','Categoria',categories)}
- ${field('sku','Código / SKU',p.sku,'text','maxlength="50"')}
- ${selectField('tracking','Controle de estoque',tracking)}
- ${field('minStock','Alerta de estoque mínimo',p.minStock??0,'number','min="0" step="1" inputmode="numeric"')}
- ${field('cost','Custo de compra por unidade (R$)',p.cost??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
- ${field('price','Preço de venda sugerido (R$)',p.price??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
- </div>
- ${stockFields}
- ${id?`<hr class="form-divider"/><button type="button" class="btn btn-danger btn-sm" data-action="delete-product" data-id="${attr(id)}">${icon('trash')} Excluir produto sem movimentação</button>`:''}`,'Salvar produto');
+ const qty=id?available(id).qty:0;
+ const serialSource=id&&p.tracking==='serial';
+ const form=`<input type="hidden" name="id" value="${attr(id)}"/>
+ <div class="simple-form">
+ ${field('name','Nome do produto *',p.name||'','text','required maxlength="130" placeholder="Ex.: iPhone 15 Pro 256 GB"')}
+ ${field('brand','Marca',p.brand||'','text','maxlength="70" placeholder="Ex.: Apple, Samsung, JBL"')}
+ <div class="field"><label for="f-addSerials">IMEI ou número de série <span class="optional">(se houver)</span></label><textarea class="textarea" id="f-addSerials" name="addSerials" rows="2" placeholder="Um número por linha; deixe vazio para acessórios" autocapitalize="characters" spellcheck="false"></textarea><div class="helper">Para vários aparelhos, informe um IMEI por linha. A quantidade será contada automaticamente.</div></div>
+ ${id?`<div class="existing-qty">Estoque atual: <strong>${qty} unidade(s)</strong>. Informe abaixo apenas o que deseja acrescentar.</div>`:''}
+ ${field('addQuantity',id?'Quantidade para adicionar':'Quantidade *',id?0:1,'number','min="0" max="100000" step="1" inputmode="numeric" required')}
+ <div class="field"><label for="f-supplierName">Fornecedor</label><input class="input" id="f-supplierName" name="supplierName" type="text" maxlength="130" list="supplier-names" autocomplete="off" placeholder="Nome do fornecedor" value="${attr(supplier(p.defaultSupplierId)?.name||'')}"/><datalist id="supplier-names">${db.suppliers.map(x=>`<option value="${attr(x.name)}"></option>`).join('')}</datalist></div>
+ ${field('cost','Preço de custo por unidade (R$)',p.cost??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
+ ${field('warrantyMonths','Garantia informada (meses)',p.warrantyMonths??3,'number','min="0" max="120" step="1" inputmode="numeric"')}
+ ${serialSource?`<div class="helper">Este produto já é controlado por IMEI. Para adicionar unidades, informe cada número.</div>`:''}
+ ${id?`<button type="button" class="btn btn-danger btn-sm" data-action="delete-product" data-id="${attr(id)}">${icon('trash')} Excluir produto sem movimentação</button>`:''}
+ </div>`;
+ modalFrame(id?'Editar produto':'Adicionar produto',id?'Altere dados ou acrescente unidades.':'Preencha só o necessário.',form,'Salvar produto');
  document.getElementById('modal-form').dataset.form='product';
- productTrackingChange();
 }
-function productTrackingChange(){
- const f=document.getElementById('modal-form');
- if(!f||f.dataset.form!=='product')return;
- const serial=f.elements.tracking.value==='serial';
- const wrap=document.getElementById('product-serials-wrap');
- if(wrap)wrap.classList.toggle('hidden',!serial);
-}
+function productTrackingChange(){}
 function productSerialsInput(){
- const form=document.getElementById('modal-form');if(form?.dataset.form!=='product'||form.elements.tracking.value!=='serial')return;
- const raw=String(form.elements.addSerials?.value||'');
- const serials=raw.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
- if(serials.length)form.elements.addQuantity.value=String(serials.length);
+ const f=document.getElementById('modal-form');if(f?.dataset.form!=='product')return;
+ const serials=String(f.elements.addSerials.value||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
+ if(serials.length)f.elements.addQuantity.value=String(serials.length);
 }
 function entryModal(preselected=''){
  if(!db.products.length){toast('Cadastre um produto antes de registrar entradas.','error');productModal();return;}
@@ -298,20 +288,47 @@ function readSaleDraft(){
  draftSaleFields={}; for(const name of ['clientId','date','paymentMethod','installments','fees','shipping','otherCosts','amountPaid','notes']){draftSaleFields[name]=f.elements[name]?.value??'';}
 }
 function saleModal(){
- if(!db.products.length){toast('Cadastre um produto antes de registrar vendas.','error');productModal();return;}
- draftCart=[];draftMode='concluida';draftSaleFields={date:localDate(),paymentMethod:'Pix',installments:'1',amountPaid:''};drawSaleModal();
+ if(!db.products.length){toast('Adicione um produto antes de vender.','error');productModal();return;}
+ const choices=productOptions();
+ modalFrame('Nova venda','Registre sua venda em poucos campos.',`
+ <div class="simple-form">
+ ${field('customerName','Cliente *','','text','required maxlength="130" placeholder="Nome do comprador"')}
+ ${selectField('saleProductId','Produto *',choices,'required')}
+ <div class="simple-two">${field('saleQuantity','Quantidade',1,'number','min="1" step="1" inputmode="numeric" required')}${field('saleUnitPrice','Preço de venda por unidade (R$)','','number','min="0" step="0.01" inputmode="decimal" required')}</div>
+ <div class="sale-availability" id="sale-stock-tip">Selecione um produto para ver a disponibilidade.</div>
+ <div id="sale-serial-pickers"></div>
+ ${field('saleExtras','Custos adicionais (R$) — opcional',0,'number','min="0" step="0.01" inputmode="decimal"')}
+ <div class="simple-two">${field('saleWarrantyMonths','Garantia para o cliente (meses)',3,'number','min="0" max="120" step="1" inputmode="numeric"')}
+ ${selectField('paymentMethod','Forma de pagamento',['Pix','Dinheiro','Débito','Crédito','Transferência','Outro'].map(x=>`<option>${x}</option>`).join(''))}</div>
+ ${field('amountPaid','Valor recebido (R$) — opcional','','number','min="0" step="0.01" inputmode="decimal" placeholder="Em branco = venda paga integralmente"')}
+ <div class="helper">Se ainda não recebeu, informe 0. O valor ficará em “A receber”.</div>
+ <div class="simple-sale-total">Total da venda <strong id="live-sale-total">${money(0)}</strong></div>
+ </div>`,'Salvar venda');
+ document.getElementById('modal-form').dataset.form='sale-simple';
 }
-function drawSaleModal(){
- const v=k=>draftSaleFields[k]??'';
- const selectedProd=db.products[0];
- const productPicker=productOptions();
- const cartSum=amount(draftCart.reduce((a,i)=>a+i.quantity*i.unitPrice,0));
- const itemRows=draftCart.length?draftCart.map((item,i)=>`<div class="cart-row"><div class="cart-row-main">${esc(prodName(item.productId))}<small>${item.quantity} × ${money(item.unitPrice)}${item.serials?.length?' · '+esc(item.serials.join(', ')):''}</small></div><strong class="money small">${money(item.quantity*item.unitPrice)}</strong><button class="icon-btn" type="button" aria-label="Remover item" data-action="cart-remove" data-index="${i}">${icon('close')}</button></div>`).join(''):'<div class="dashed">Adicione um produto à venda.</div>';
- modalFrame('Nova venda','Venda imediata ou pedido sob encomenda.',`<div class="sell-mode"><button type="button" class="${draftMode==='concluida'?'active':''}" data-action="sale-mode" data-mode="concluida">Venda com estoque</button><button type="button" class="${draftMode==='encomenda'?'active':''}" data-action="sale-mode" data-mode="encomenda">Sob encomenda</button></div><div class="fields" style="margin-top:17px">${selectField('clientId','Cliente',personOptions('clients',v('clientId')))}${field('date','Data',v('date')||localDate(),'date','required')}</div>
- <hr class="form-divider"/><div class="form-heading">Itens da venda</div><div class="cart-builder"><div class="fields"><div class="field span2"><label for="cart-product">Produto *</label><select id="cart-product" class="select" data-cart-product="1">${productPicker}</select></div><div class="field" id="cart-qty-wrap"><label for="cart-qty">Quantidade</label><input id="cart-qty" class="input" type="number" min="1" step="1" value="1"/></div><div class="field"><label for="cart-price">Preço por unidade (R$)</label><input id="cart-price" class="input" type="number" min="0" step="0.01" inputmode="decimal" value="0"/></div><div class="field span2 hidden" id="cart-serial-wrap"><label for="cart-serial">Selecione IMEI / nº de série</label><select id="cart-serial" class="select"></select></div></div><div class="tip" id="cart-stock-tip" style="margin:10px 0"></div><button class="btn btn-soft full" type="button" data-action="cart-add">${icon('plus')} Adicionar item</button></div><div class="cart-items">${itemRows}</div><div class="cart-summary"><span>Total</span><strong>${money(cartSum)}</strong></div>
- <hr class="form-divider"/><div class="form-heading">Pagamento e custos</div><div class="fields">${selectField('paymentMethod','Forma de pagamento', ['Pix','Dinheiro','Débito','Crédito','Transferência','Outro'].map(x=>`<option ${v('paymentMethod')===x?'selected':''}>${x}</option>`).join(''))}${field('installments','Parcelas',v('installments')||1,'number','min="1" max="24" step="1"')}${field('fees','Taxas do cartão (R$)',v('fees'),'number','min="0" step="0.01" inputmode="decimal"')}${field('shipping','Frete pago pela loja (R$)',v('shipping'),'number','min="0" step="0.01" inputmode="decimal"')}${field('otherCosts','Outras despesas da venda (R$)',v('otherCosts'),'number','min="0" step="0.01" inputmode="decimal"')}${field('amountPaid','Valor já recebido (R$)',v('amountPaid'),'number',`min="0" step="0.01" inputmode="decimal" placeholder="${draftMode==='concluida'?'Em branco = total pago':'Em branco = R$ 0'}"`)}<div class="field span2"><label for="f-notes">Observações</label><textarea class="textarea" id="f-notes" name="notes" maxlength="900">${esc(v('notes'))}</textarea><div class="helper">Para parcelamento, informe as taxas totais estimadas. O aplicativo ainda não gera parcelas individuais.</div></div></div><div class="warn-inline">${draftMode==='encomenda'?'Encomendas não baixam estoque nem contam como vendas no resultado até serem concluídas.':'Ao concluir, os itens são retirados do estoque. O IMEI escolhido fica vinculado à venda.'}</div>`,'Salvar '+(draftMode==='encomenda'?'encomenda':'venda'),'wide');
- document.getElementById('modal-form').dataset.form='sale';
- cartProductChange();
+function saleProductChange(resetDefaults=true){
+ const f=document.getElementById('modal-form');if(f?.dataset.form!=='sale-simple')return;
+ const p=prod(f.elements.saleProductId.value), tip=document.getElementById('sale-stock-tip');
+ if(!p){tip.textContent='Selecione um produto para ver a disponibilidade.';document.getElementById('sale-serial-pickers').innerHTML='';saleCalcTotal();return;}
+ const stock=available(p.id),q=f.elements.saleQuantity;
+ q.max=stock.qty;
+ if(resetDefaults){q.value=1;f.elements.saleUnitPrice.value=p.price||0;f.elements.saleWarrantyMonths.value=p.warrantyMonths??3;}
+ tip.textContent=`${stock.qty} unidade(s) disponível(is) no estoque.`;
+ saleSerialPickers();saleCalcTotal();
+}
+function saleSerialPickers(){
+ const f=document.getElementById('modal-form');if(f?.dataset.form!=='sale-simple')return;
+ const p=prod(f.elements.saleProductId.value),container=document.getElementById('sale-serial-pickers');
+ if(!p||p.tracking!=='serial'){container.innerHTML='';return;}
+ const count=Math.max(0,Math.min(50,Math.floor(Number(f.elements.saleQuantity.value)||0)));
+ const serials=available(p.id).serials;
+ const before=Array.from(container.querySelectorAll('[data-sale-serial]')).map(x=>x.value);
+ container.innerHTML=`<div class="field"><label>IMEI / número de série</label><div class="serial-select-list">${Array.from({length:count},(_,i)=>`<select class="select" aria-label="IMEI da unidade ${i+1}" data-sale-serial="1" required><option value="">Selecione a unidade ${i+1}</option>${serials.map(x=>`<option value="${attr(x.serial)}" ${before[i]===x.serial?'selected':''}>${esc(x.serial)}</option>`).join('')}</select>`).join('')}</div></div>`;
+}
+function saleCalcTotal(){
+ const f=document.getElementById('modal-form');if(f?.dataset.form!=='sale-simple')return;
+ const total=amount(Number(f.elements.saleQuantity.value||0)*Number(f.elements.saleUnitPrice.value||0));
+ const elem=document.getElementById('live-sale-total');if(elem)elem.textContent=money(total);
 }
 function cartProductChange(){
  const p=prod(document.getElementById('cart-product')?.value);
@@ -355,8 +372,8 @@ function saleDetail(id){
  const s=byId(db.sales,id);if(!s)return;
  const totals=saleTotal(s),cost=saleCost(s),profit=saleProfit(s);
  const rows=s.items.map(i=>`<div class="stat-pair"><div><strong>${esc(i.productName)}</strong><div class="tr-sub">${i.quantity} x ${money(i.unitPrice)}${i.serials?.length?' · '+esc(i.serials.join(', ')):''}</div></div><strong>${money(i.quantity*i.unitPrice)}</strong></div>`).join('');
- const fields=`<div class="mini-head"><span class="small muted">Venda ${esc(id.slice(0,8).toUpperCase())} · ${dateText(saleEffectiveDate(s))}</span>${saleBadge(s)}</div><div class="details-grid"><div class="details-box"><div class="details-box-label">Cliente</div><div class="details-box-value" style="font-size:14px">${esc(clientName(s.clientId))}</div></div><div class="details-box"><div class="details-box-label">Pagamento</div><div class="details-box-value" style="font-size:14px">${esc(s.paymentMethod)} · ${s.installments||1}x</div></div></div><div class="form-heading">Itens</div>${rows}<div class="form-heading">Resumo financeiro</div>${[['Total da venda',totals],['Custo das mercadorias',-cost],['Taxas do pagamento',-Number(s.fees||0)],['Frete pago pela loja',-Number(s.shipping||0)],['Outras despesas',-Number(s.otherCosts||0)]].map(([l,v])=>`<div class="stat-pair"><span>${esc(l)}</span><strong>${v<0?'-':''}${money(Math.abs(v))}</strong></div>`).join('')}<div class="stat-pair"><strong>Resultado estimado</strong><strong class="${profit>=0?'positive':'negative'}">${s.status==='concluida'?money(profit):'Não reconhecido'}</strong></div><div class="stat-pair"><span>Já recebido</span><strong>${money(s.amountPaid||0)}</strong></div>${s.status==='concluida'?`<div class="stat-pair"><span>A receber</span><strong>${money(Math.max(0,totals-(s.amountPaid||0)))}</strong></div>`:''}${s.notes?`<div class="form-heading">Observações</div><div class="muted-block">${esc(s.notes)}</div>`:''}<div class="warn-inline">Cancelamentos devolvem as unidades ao estoque. O registro da venda continua no histórico.</div>`;
- const footer=`${s.status==='encomenda'?`<button class="btn btn-soft" type="button" data-action="finalize-order" data-id="${attr(id)}">Concluir encomenda</button>`:''}${s.status!=='cancelada'?`<button class="btn btn-danger" type="button" data-action="cancel-sale" data-id="${attr(id)}">Cancelar</button>`:''}${s.status==='concluida'?`<button class="btn" type="button" data-action="receive-sale" data-id="${attr(id)}">Registrar recebimento</button>`:''}`;
+ const fields=`<div class="mini-head"><span class="small muted">Venda ${esc(id.slice(0,8).toUpperCase())} · ${dateText(saleEffectiveDate(s))}</span>${saleBadge(s)}</div><div class="details-grid"><div class="details-box"><div class="details-box-label">Cliente</div><div class="details-box-value" style="font-size:14px">${esc(saleClientName(s))}</div></div><div class="details-box"><div class="details-box-label">Pagamento</div><div class="details-box-value" style="font-size:14px">${esc(s.paymentMethod)}${Number(s.installments||1)>1?' · '+s.installments+'x':''}</div></div></div><div class="form-heading">Itens</div>${rows}<div class="form-heading">Resumo financeiro</div>${[['Total da venda',totals],['Custo das mercadorias',-cost],['Taxas do pagamento',-Number(s.fees||0)],['Frete pago pela loja',-Number(s.shipping||0)],['Outras despesas',-Number(s.otherCosts||0)]].map(([l,v])=>`<div class="stat-pair"><span>${esc(l)}</span><strong>${v<0?'-':''}${money(Math.abs(v))}</strong></div>`).join('')}<div class="stat-pair"><strong>Resultado estimado</strong><strong class="${profit>=0?'positive':'negative'}">${s.status==='concluida'?money(profit):'Não reconhecido'}</strong></div><div class="stat-pair"><span>Já recebido</span><strong>${money(s.amountPaid||0)}</strong></div>${s.status==='concluida'?`<div class="stat-pair"><span>A receber</span><strong>${money(Math.max(0,totals-(s.amountPaid||0)))}</strong></div>`:''}${s.warrantyMonths!==undefined?`<div class="stat-pair"><span>Garantia informada</span><strong>${s.warrantyMonths} mês(es)</strong></div>`:''}${s.notes?`<div class="form-heading">Observações</div><div class="muted-block">${esc(s.notes)}</div>`:''}<div class="warn-inline">Cancelamentos devolvem as unidades ao estoque. O registro da venda continua no histórico.</div>`;
+ const footer=`${s.status==='concluida'?`<button class="btn btn-soft" type="button" data-action="show-receipt" data-id="${attr(id)}">${icon('download')} Recibo</button>`:''}${s.status==='encomenda'?`<button class="btn btn-soft" type="button" data-action="finalize-order" data-id="${attr(id)}">Concluir encomenda</button>`:''}${s.status!=='cancelada'?`<button class="btn btn-danger" type="button" data-action="cancel-sale" data-id="${attr(id)}">Cancelar</button>`:''}${s.status==='concluida'?`<button class="btn" type="button" data-action="receive-sale" data-id="${attr(id)}">Registrar recebimento</button>`:''}`;
  modalFrame('Detalhes da venda','Confira os itens, valores e status.',fields,'Fechar','wide',footer);document.getElementById('modal-form').dataset.form='read-only';document.querySelector('#modal-form button[type=submit]').textContent='Fechar';
 }
 function finalizeOrderModal(id){
@@ -371,7 +388,7 @@ function finalizeOrderModal(id){
  });
  modalFrame('Concluir encomenda','Baixa de estoque e reconhecimento da venda.',fields,'Concluir venda','wide');document.getElementById('modal-form').dataset.form='finalize-order';
 }
-function warrantySaleOptions(selected=''){return '<option value="">Selecione uma venda</option>'+completed().slice().sort((a,b)=>String(saleEffectiveDate(b)).localeCompare(String(saleEffectiveDate(a)))).map(s=>`<option value="${attr(s.id)}" ${selected===s.id?'selected':''}>${dateText(saleEffectiveDate(s))} · ${esc(clientName(s.clientId))} · ${money(saleTotal(s))}</option>`).join('');}
+function warrantySaleOptions(selected=''){return '<option value="">Selecione uma venda</option>'+completed().slice().sort((a,b)=>String(saleEffectiveDate(b)).localeCompare(String(saleEffectiveDate(a)))).map(s=>`<option value="${attr(s.id)}" ${selected===s.id?'selected':''}>${dateText(saleEffectiveDate(s))} · ${esc(saleClientName(s))} · ${money(saleTotal(s))}</option>`).join('');}
 function warrantyItemOptions(saleId,selected=''){
  const s=byId(db.sales,saleId);if(!s)return '<option value="">Escolha primeiro uma venda</option>';
  return '<option value="">Selecione o item</option>'+s.items.flatMap((item,i)=>item.serials?.length?item.serials.map(serial=>({value:i+'::'+serial,label:item.productName+' · '+serial})): [{value:i+'::',label:item.productName+' · '+item.quantity+' un.'}]).map(x=>`<option value="${attr(x.value)}" ${selected===x.value?'selected':''}>${esc(x.label)}</option>`).join('');
@@ -382,38 +399,81 @@ function warrantyModal(id=''){
  modalFrame(id?'Editar garantia':'Abrir garantia','Controle um atendimento pós-venda.',`<input type="hidden" name="id" value="${attr(id)}"/><div class="fields mobile-one">${selectField('saleId','Venda de origem *',warrantySaleOptions(w.saleId),'required data-warranty-sale="1"')}${selectField('saleItem','Produto / IMEI *',warrantyItemOptions(w.saleId,w.itemKey),'required data-warranty-item="1"')}${field('date','Data da solicitação',w.date||localDate(),'date','required')}${selectField('status','Situação',Object.entries(WARRANTY_STATUS).map(([k,v])=>`<option value="${k}" ${w.status===k?'selected':''}>${v}</option>`).join(''))}<div class="field span2">${field('problem','Problema informado *',w.problem||'','text','required maxlength="200"')}</div>${field('cost','Custo da garantia (R$)',w.cost??0,'number','min="0" step="0.01" inputmode="decimal"')}${field('costDate','Data do custo',w.costDate||w.date||localDate(),'date')}<div class="field span2"><label for="f-resolution">Observações / solução</label><textarea class="textarea" id="f-resolution" name="resolution" maxlength="1500">${esc(w.resolution||'')}</textarea></div></div>`,'Salvar garantia');document.getElementById('modal-form').dataset.form='warranty';
 }
 function warrantySaleChange(){const f=document.getElementById('modal-form');if(!f||f.dataset.form!=='warranty')return;f.elements.saleItem.innerHTML=warrantyItemOptions(f.elements.saleId.value);}
+function receiptText(s){
+ const sum=saleTotal(s);const paid=Number(s.amountPaid||0),due=Math.max(0,sum-paid);
+ const lines=[
+  'RECIBO DE VENDA',
+  db.settings.businessName||'Ítalo Rocha',
+  '----------------------------',
+  `Venda: ${String(s.id).slice(0,8).toUpperCase()}`,
+  `Data: ${dateText(saleEffectiveDate(s))}`,
+  `Cliente: ${saleClientName(s)}`,
+  '',
+  'PRODUTOS'
+ ];
+ for(const item of s.items||[]){
+  lines.push(`${item.productName} — ${item.quantity} x ${money(item.unitPrice)}`);
+  if(item.serials?.length)lines.push('IMEI / Série: '+item.serials.join(', '));
+ }
+ lines.push('',`Total: ${money(sum)}`,`Pagamento: ${s.paymentMethod||'Não informado'}`);
+ if(due>0.005){lines.push(`Recebido: ${money(paid)}`,`A receber: ${money(due)}`);}
+ if(s.warrantyMonths!==undefined&&s.warrantyMonths!==null){
+  lines.push(`Garantia informada: ${s.warrantyMonths} mês(es)`);
+  const [y,m,d]=String(saleEffectiveDate(s)).slice(0,10).split('-').map(Number);
+  if(y&&m&&d&&Number(s.warrantyMonths)>0){
+   const last=new Date(y,m-1+Number(s.warrantyMonths)+1,0).getDate();
+   const end=new Date(y,m-1+Number(s.warrantyMonths),Math.min(d,last));
+   lines.push(`Previsão de término: ${dateText(localDate(end))}`);
+  }
+ }
+ lines.push('----------------------------','Recibo simples de venda. Não substitui documento fiscal quando obrigatório.');
+ return lines.join('\n');
+}
+function receiptModal(id){
+ const s=byId(db.sales,id);if(!s)return;
+ modalFrame('Recibo da venda','Copie ou envie diretamente pelo WhatsApp.',`<div class="receipt-intro">${icon('check')} Venda registrada. Seu recibo está pronto.</div><textarea class="textarea receipt-text" readonly aria-label="Texto do recibo">${esc(receiptText(s))}</textarea>`,'Fechar','',`<button class="btn btn-soft" type="button" data-action="copy-receipt" data-id="${attr(id)}">${icon('check')} Copiar</button><button class="btn btn-whatsapp" type="button" data-action="whatsapp-receipt" data-id="${attr(id)}">Enviar WhatsApp</button>`);
+ document.getElementById('modal-form').dataset.form='read-only';
+ document.querySelector('.modal')?.classList.add('receipt-modal');
+}
+async function copyReceipt(id){
+ const s=byId(db.sales,id);if(!s)return;
+ const txt=receiptText(s);
+ try{if(!navigator.clipboard?.writeText)throw Error('Clipboard indisponível');await navigator.clipboard.writeText(txt);toast('Recibo copiado!');}
+ catch{const ta=document.querySelector('.receipt-text');if(ta){ta.focus();ta.select();if(document.execCommand('copy'))toast('Recibo copiado!');else toast('Selecione e copie o texto do recibo.');}else toast('Abra o recibo para copiar o texto.','error');}
+}
+function sendReceiptWhatsApp(id){
+ const s=byId(db.sales,id);if(!s)return;
+ window.open('https://wa.me/?text='+encodeURIComponent(receiptText(s)),'_blank','noopener,noreferrer');
+}
 function saveForm(ev){
  ev.preventDefault();const form=ev.target;if(!(form instanceof HTMLFormElement))return;
  const mode=form.dataset.form;const fd=new FormData(form);
  try{
  if(mode==='product'){
-  const id=String(fd.get('id')||''),name=required(fd,'name','o nome do produto'),tracking=String(fd.get('tracking'));
-  const sku=String(fd.get('sku')||'').trim();
-  if(sku&&db.products.some(p=>p.sku.toLowerCase()===sku.toLowerCase()&&p.id!==id))throw Error('Este SKU já pertence a outro produto.');
-  const minStock=numericField(fd,'minStock');if(!Number.isInteger(minStock))throw Error('Estoque mínimo precisa ser inteiro.');
-  const record={name,brand:String(fd.get('brand')||'').trim(),category:String(fd.get('category')),sku,tracking,minStock,cost:numericField(fd,'cost'),price:numericField(fd,'price')};
-  const defaultSupplierName=String(fd.get('supplierName')||'').trim();
-  if(!['serial','quantity'].includes(tracking))throw Error('Tipo de controle inválido.');
-  if(defaultSupplierName.length>130)throw Error('Nome do fornecedor muito longo.');
-  if(id){const p=prod(id);if(!p)throw Error('Produto não encontrado.');if(p.tracking!==tracking&&(db.entries.some(e=>e.productId===id)||db.sales.some(s=>s.items.some(i=>i.productId===id))))throw Error('Não é possível mudar o tipo de controle após uma movimentação.');}
-  const addQuantity=numericField(fd,'addQuantity');
-  if(!Number.isInteger(addQuantity)||addQuantity<0||addQuantity>100000)throw Error('Informe uma quantidade inteira de 0 a 100.000.');
+  const id=String(fd.get('id')||'');const name=required(fd,'name','o nome do produto');
   const serials=String(fd.get('addSerials')||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
-  if(tracking==='serial'){
-   if(serials.length!==addQuantity)throw Error(addQuantity>0?`Para adicionar ${addQuantity} unidade(s), informe exatamente ${addQuantity} IMEI(s)/número(s) de série.`:'Informe uma quantidade maior que zero junto com os IMEIs, ou apague a lista.');
-   if(new Set(serials.map(x=>x.toUpperCase())).size!==serials.length)throw Error('Há IMEIs/números de série repetidos na lista.');
-   const usedSerials=new Set(db.entries.flatMap(e=>e.serials||[]).map(x=>String(x).toUpperCase()));
-   if(serials.some(x=>usedSerials.has(x.toUpperCase())))throw Error('Um IMEI/número de série já consta no histórico de estoque.');
-  }
+  const addQuantity=numericField(fd,'addQuantity');
+  if(!Number.isInteger(addQuantity)||addQuantity<0||addQuantity>100000)throw Error('Quantidade inválida. Informe um número inteiro de 0 a 100.000.');
+  const current=id?prod(id):null;if(id&&!current)throw Error('Produto não encontrado.');
+  const tracking=current?.tracking==='serial'?'serial':serials.length?'serial':current?.tracking||'quantity';
+  if(tracking==='serial'&&addQuantity!==serials.length)throw Error(`Informe um IMEI/número de série para cada uma das ${addQuantity} unidade(s).`);
+  if(tracking==='quantity'&&serials.length)throw Error('Não é possível adicionar IMEI a um produto já controlado por quantidade. Cadastre um novo produto.');
+  if(new Set(serials.map(x=>x.toUpperCase())).size!==serials.length)throw Error('Você informou números de série repetidos.');
+  const existing=new Set(db.entries.flatMap(e=>e.serials||[]).map(x=>String(x).toUpperCase()));
+  if(serials.some(x=>existing.has(x.toUpperCase())))throw Error('Um IMEI/número de série já consta no estoque ou no histórico.');
+  const warrantyMonths=numericField(fd,'warrantyMonths',3);
+  if(!Number.isInteger(warrantyMonths)||warrantyMonths>120)throw Error('Informe a garantia em meses (0 a 120).');
+  const supplierName=String(fd.get('supplierName')||'').trim();
+  if(supplierName.length>130)throw Error('Nome do fornecedor muito longo.');
+  const record={name,brand:String(fd.get('brand')||'').trim(),tracking,cost:numericField(fd,'cost'),warrantyMonths};
   const now=new Date().toISOString();
   commit(copy=>{
-   const defaultSupplierId=getOrCreateSupplier(copy,defaultSupplierName);
+   const defaultSupplierId=getOrCreateSupplier(copy,supplierName);
    const productId=id||uid();
    if(id)Object.assign(byId(copy.products,id),record,{defaultSupplierId});
-   else copy.products.push({id:productId,...record,defaultSupplierId,createdAt:now});
-   // Uma única gravação: produto e movimentação entram juntos, sem estoque fictício.
-   if(addQuantity>0)copy.entries.push({id:uid(),productId,supplierId:defaultSupplierId,date:localDate(),quantity:addQuantity,unitCost:record.cost,serials:tracking==='serial'?serials:[],notes:id?'Entrada adicional pelo cadastro do produto':'Estoque inicial cadastrado com o produto',createdAt:now});
-  },id?(addQuantity>0?`Produto atualizado e ${addQuantity} unidade(s) adicionada(s).`:'Produto atualizado.'):(addQuantity>0?`Produto cadastrado com ${addQuantity} unidade(s) em estoque.`:'Produto cadastrado (sem unidades em estoque).'));
+   else copy.products.push({id:productId,category:tracking==='serial'?'Celular':'Outro',sku:'',minStock:0,price:0,...record,defaultSupplierId,createdAt:now});
+   if(addQuantity>0)copy.entries.push({id:uid(),productId,supplierId:defaultSupplierId,date:localDate(),quantity:addQuantity,unitCost:record.cost,serials:tracking==='serial'?serials:[],notes:id?'Entrada pelo cadastro':'Entrada inicial',createdAt:now});
+  },id?'Produto atualizado.':'Produto cadastrado.');
  }
  else if(mode==='entry'){
   const productId=required(fd,'productId','o produto'),p=prod(productId);if(!p)throw Error('Produto inválido.');
@@ -444,15 +504,24 @@ function saveForm(ev){
   if(id){if(!byId(db.expenses,id))throw Error('Lançamento não encontrado.');commit(copy=>Object.assign(byId(copy.expenses,id),record),'Lançamento atualizado.');}
   else commit(copy=>copy.expenses.push({id:uid(),...record,createdAt:new Date().toISOString()}),'Lançamento registrado.');
  }
- else if(mode==='sale'){
-  if(!draftCart.length)throw Error('Adicione pelo menos um produto à venda.');
-  const date=required(fd,'date','a data'),clientId=String(fd.get('clientId')||''),fees=numericField(fd,'fees'),shipping=numericField(fd,'shipping'),otherCosts=numericField(fd,'otherCosts');
-  const items=draftMode==='concluida'?allocatedItems(draftCart):draftCart.map(i=>({...i,productName:prodName(i.productId),allocations:[]}));
-  const total=saleTotal({items});const amountPaid=fd.get('amountPaid')===''?(draftMode==='concluida'?total:0):numericField(fd,'amountPaid');
-  if(amountPaid>total)throw Error('Valor recebido não pode ser maior que o total da venda.');
-  const installments=numericField(fd,'installments',1);if(!Number.isInteger(installments)||installments<1||installments>24)throw Error('Informe 1 a 24 parcelas.');
-  const record={id:uid(),date,completedAt:draftMode==='concluida'?date:null,status:draftMode,items,clientId,paymentMethod:String(fd.get('paymentMethod')||'Pix'),installments,fees,shipping,otherCosts,amountPaid,notes:String(fd.get('notes')||'').trim(),createdAt:new Date().toISOString()};
-  commit(copy=>copy.sales.push(record),draftMode==='concluida'?'Venda concluída e estoque atualizado.':'Encomenda registrada.');
+ else if(mode==='sale-simple'){
+  const customerName=required(fd,'customerName','o nome do cliente');
+  const productId=required(fd,'saleProductId','o produto'),p=prod(productId);
+  if(!p)throw Error('Produto não encontrado.');
+  const quantity=numericField(fd,'saleQuantity');
+  if(!Number.isInteger(quantity)||quantity<1||quantity>100000)throw Error('Quantidade inválida.');
+  const unitPrice=numericField(fd,'saleUnitPrice');
+  const otherCosts=numericField(fd,'saleExtras');
+  const warrantyMonths=numericField(fd,'saleWarrantyMonths',p.warrantyMonths??3);
+  if(!Number.isInteger(warrantyMonths)||warrantyMonths>120)throw Error('Garantia deve ser informada em meses (0 a 120).');
+  const serials=Array.from(form.querySelectorAll('[data-sale-serial]')).map(x=>x.value);
+  if(p.tracking==='serial'&&serials.some(x=>!x))throw Error('Selecione o IMEI de cada unidade.');
+  const items=allocatedItems([{productId,quantity,unitPrice,serials:p.tracking==='serial'?serials:[]}]);
+  const total=saleTotal({items});
+  const amountPaid=String(fd.get('amountPaid')||'').trim()===''?total:numericField(fd,'amountPaid');
+  if(amountPaid>total)throw Error('O valor recebido não pode ultrapassar o total da venda.');
+  const record={id:uid(),date:localDate(),completedAt:localDate(),status:'concluida',items,clientId:'',customerName,paymentMethod:String(fd.get('paymentMethod')||'Pix'),installments:1,fees:0,shipping:0,otherCosts,warrantyMonths,amountPaid,notes:'',createdAt:new Date().toISOString()};
+  if(commit(copy=>copy.sales.push(record),'Venda registrada.'))receiptModal(record.id);
  }
  else if(mode==='finalize-order'){
   const id=required(fd,'saleId','a encomenda'),s=byId(db.sales,id);if(!s||s.status!=='encomenda')throw Error('Encomenda não está pendente.');
@@ -512,7 +581,15 @@ async function actionHandler(e){
  const a=el.dataset.action,id=el.dataset.id,type=el.dataset.type;
  try{
   switch(a){
-   case 'nav':view=el.dataset.view;query='';stockFilter='todos';saleFilter='todos';closeModal();render();window.scrollTo({top:0,behavior:'instant'});break;
+   case 'nav':view=el.dataset.view;query='';stockFilter='todos';saleFilter='todos';onlyCurrentMonth=false;closeModal();render();window.scrollTo({top:0,behavior:'instant'});break;
+   case 'kpi-sales':view='sales';query='';saleFilter='concluida';onlyCurrentMonth=true;render();window.scrollTo(0,0);break;
+   case 'kpi-profit':view='finance';render();window.scrollTo(0,0);break;
+   case 'kpi-stock':view='stock';query='';stockFilter='todos';render();window.scrollTo(0,0);break;
+   case 'kpi-receivables':view='receivables';render();window.scrollTo(0,0);break;
+   case 'show-all-sales':onlyCurrentMonth=false;saleFilter='todos';render();break;
+   case 'show-receipt':receiptModal(id);break;
+   case 'copy-receipt':await copyReceipt(id);break;
+   case 'whatsapp-receipt':sendReceiptWhatsApp(id);break;
    case 'close-modal':closeModal();break;
    case 'open-product':productModal();break;
    case 'edit-product':productModal(id);break;
@@ -576,12 +653,16 @@ document.addEventListener('change',e=>{
  if(e.target.matches('#import-file')){importDB(e.target.files?.[0]);return;}
  if(e.target.matches('[data-entry-product]')){entryTrackingChange();return;}
  if(e.target.matches('#f-tracking')){productTrackingChange();return;}
+ if(e.target.matches('#f-saleProductId')){saleProductChange();return;}
+ if(e.target.matches('#f-saleQuantity')){saleSerialPickers();saleCalcTotal();return;}
  if(e.target.matches('#cart-product')){cartProductChange();return;}
  if(e.target.matches('[data-warranty-sale]')){warrantySaleChange();return;}
  if(e.target.matches('[data-filter]')){if(e.target.dataset.filter==='stock')stockFilter=e.target.value;else saleFilter=e.target.value;render();}
 });
 document.addEventListener('input',e=>{
  if(e.target.matches('#f-addSerials'))productSerialsInput();
+ if(e.target.matches('#f-saleQuantity'))saleSerialPickers();
+ if(e.target.matches('#f-saleQuantity,#f-saleUnitPrice'))saleCalcTotal();
  if(e.target.matches('#f-unitCost, #f-supplierId'))e.target.dataset.edited='1';
  if(e.target.matches('[data-search]')){
   query=e.target.value;const start=e.target.selectionStart,end=e.target.selectionEnd;render();const input=document.querySelector('[data-search]');if(input){input.focus();input.setSelectionRange(start,end);}

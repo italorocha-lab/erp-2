@@ -102,3 +102,20 @@ html,body{width:100%;overflow-x:hidden;}
  .receive-row{padding:14px;}
  .receivable-total{padding:15px;}
 }
+
+/* Ítalo ERP 2.4 — detalhes de seminovos e resumo financeiro diário */
+.used-product-fields{display:grid;gap:13px;padding:13px;border:1px solid #dce7f5;border-radius:13px;background:#f7faff}
+.used-product-fields.hidden{display:none}
+.section-short{padding-top:6px;border-top:1px solid #e4ebf5;font-size:14px;font-weight:740;color:#233752}
+.duration-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(108px,40%);gap:8px;min-width:0}
+.duration-row .input,.duration-row .select{min-width:0;width:100%}
+.sale-used-preview{background:#f7faff;color:#536580;border:1px solid #dce7f5;border-radius:10px;padding:11px 12px;font-size:12px;line-height:1.55;overflow-wrap:anywhere}
+.sale-used-preview strong{color:#1e3555}
+.daily-filter{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0 16px}
+.daily-filter label{font-size:13px;font-weight:700;color:#3b4e69}
+.daily-filter .input{width:auto;max-width:215px}
+.daily-cards{margin-bottom:17px}
+.daily-cards .kpi{min-height:120px}
+.daily-cards .kpi-value{font-size:clamp(18px,2.5vw,28px);overflow-wrap:anywhere}
+.daily-entry-list .card-right{display:flex;flex-direction:column;gap:5px;align-items:flex-end}
+@media(max-width:760px){.daily-filter{gap:9px}.daily-filter .input{flex:1;min-width:150px;max-width:230px}.daily-cards .kpi{min-height:110px}.daily-cards .kpi-value{font-size:18px}.duration-row{grid-template-columns:minmax(0,1fr) 115px}.used-product-fields{padding:12px}}

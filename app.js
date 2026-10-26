@@ -1,4 +1,4 @@
-/* Ítalo ERP 2.2 — protótipo local-first, sem dependências externas.
+/* Ítalo ERP 2.5 — protótipo local-first, sem dependências externas.
    Dados ficam apenas no navegador atual. Esta versão NÃO possui autenticação de servidor. */
 (() => {
 'use strict';
@@ -50,6 +50,41 @@ const dateText = str => {if (!str) return '—'; const [y,m,d]=String(str).slice
 const monthKey = localDate().slice(0,7);
 const toMonth = s => String(s||'').slice(0,7);
 const uid = () => (globalThis.crypto?.randomUUID?.() || ('id-'+Date.now()+'-'+Math.random().toString(36).slice(2,10)));
+// Os prazos abaixo são informações contratuais/administrativas; não substituem a garantia legal.
+function formatWarranty(value,unit='dias'){
+ const n=Number(value||0); if(!n)return 'Não informada';
+ const plural= n===1?({dias:'dia',meses:'mês',anos:'ano'}[unit]||'dia'):({dias:'dias',meses:'meses',anos:'anos'}[unit]||'dias');
+ return `${n} ${plural}`;
+}
+// Exibe a garantia exatamente como cadastrada, sem presumir fabricante ou fornecedor.
+// Para registros das versões anteriores, preserva os dois prazos antigos no texto
+// até que o usuário edite a ficha e escolha a descrição que desejar.
+function productWarrantyText(p){
+ if(!p)return '';
+ if(typeof p.warrantyText==='string')return p.warrantyText;
+ const legacy=[];
+ if(p.supplierWarranty?.value)legacy.push('Fornecedor: '+formatWarranty(p.supplierWarranty.value,p.supplierWarranty.unit));
+ if(p.manufacturerWarranty?.value)legacy.push('Fabricante: '+formatWarranty(p.manufacturerWarranty.value,p.manufacturerWarranty.unit));
+ if(legacy.length)return legacy.join(' | ');
+ if(p.warrantyMonths!==undefined)return formatWarranty(p.warrantyMonths,'meses');
+ return '';
+}
+function saleWarrantyText(s){
+ if(typeof s?.customerWarrantyText==='string')return s.customerWarrantyText;
+ return '';
+}
+function warrantyFromOld(p){return p?.warrantyMonths!==undefined?{value:p.warrantyMonths,unit:'meses'}:{value:90,unit:'dias'};}
+function warrantyEnd(date,value,unit){
+ const parts=String(date||'').slice(0,10).split('-').map(Number); if(parts.length!==3||parts.some(x=>!x)||!Number(value))return '';
+ const [y,m,d]=parts, n=Number(value); let dt=new Date(y,m-1,d,12,0,0);
+ if(unit==='dias')dt.setDate(dt.getDate()+n);
+ else {const plus=n*(unit==='anos'?12:1), last=new Date(y,m-1+plus+1,0).getDate(); dt=new Date(y,m-1+plus,Math.min(d,last),12,0,0);}
+ return localDate(dt);
+}
+const durationOptions = (selected='dias')=>['dias','meses','anos'].map(v=>`<option value="${v}" ${selected===v?'selected':''}>${({dias:'Dias',meses:'Meses',anos:'Anos'})[v]}</option>`).join('');
+const warrantyFields=(key,title,value,unit='dias')=>`<div class="field"><label for="f-${key}">${esc(title)}</label><div class="duration-row"><input class="input" id="f-${key}" name="${key}" type="number" min="0" max="36500" step="1" inputmode="numeric" value="${attr(value)}"/><select class="select" name="${key}Unit" aria-label="Unidade de ${attr(title)}">${durationOptions(unit)}</select></div></div>`;
+function readWarranty(fd,key,def=0){const value=numericField(fd,key,def),unit=String(fd.get(key+'Unit')||'dias');if(!Number.isInteger(value)||value>36500||!['dias','meses','anos'].includes(unit))throw Error('Prazo de garantia inválido.');return {value,unit};}
+let financeDate=localDate();
 const initial = () => ({schemaVersion:VERSION,products:[],entries:[],sales:[],clients:[],suppliers:[],expenses:[],warranties:[],settings:{businessName:'Ítalo Rocha'},createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
 const arrays = ['products','entries','sales','clients','suppliers','expenses','warranties'];
 function validDB(o){return o && typeof o==='object' && o.schemaVersion===VERSION && arrays.every(k=>Array.isArray(o[k])) && o.settings && typeof o.settings==='object';}
@@ -122,7 +157,7 @@ function allocatedItems(items,data=db){
    for(const batch of stock.batches){ const take=Math.min(needed,batch.qty);if(take>0){alloc.push({entryId:batch.entryId,qty:take,unitCost:batch.unitCost});needed-=take;}if(needed===0)break; }
    if(needed>0)throw Error(`Estoque insuficiente para ${product.name}. Disponível: ${stock.qty}.`);
   }
-  const newItem={productId:product.id,productName:product.name,quantity,serials:item.serials||[],unitPrice:amount(item.unitPrice),allocations:alloc};
+  const newItem={productId:product.id,productName:product.name,quantity,serials:item.serials||[],unitPrice:amount(item.unitPrice),allocations:alloc,condition:product.condition||'novo',batteryHealth:product.batteryHealth??null,repairs:product.repairs||'',conditionNotes:product.conditionNotes||'',warrantyText:productWarrantyText(product)};
   result.push(newItem);
   temp.sales.push({id:uid(),status:'concluida',items:[newItem]});
  }
@@ -158,7 +193,7 @@ const NAV=[['dashboard','Início','home'],['stock','Estoque','box'],['sales','Ve
 function navRender(){
  const active= ['clients','suppliers','entries','warranties','settings'].includes(view)?'more':view;
  const all=[...NAV.slice(0,4),['entries','Entradas','layers'],['clients','Clientes','users'],['suppliers','Fornecedores','truck'],['warranties','Garantias','shield'],['settings','Configurações','settings']];
- document.getElementById('sidebar').innerHTML=`<div class="brand"><div class="brand-mark">IR</div><div><div class="brand-name">Ítalo ERP</div><div class="brand-sub">Gestão simples · v2.3</div></div></div><div class="side-group-title">PRINCIPAL</div>${all.map(([id,label,ico],i)=>`${i===4?'<div class="side-group-title">GERENCIAMENTO</div>':''}<button class="menu-btn ${view===id?'active':''}" data-action="nav" data-view="${id}">${icon(ico)}${esc(label)}</button>`).join('')}<div class="side-foot"><span class="dot"></span> Dados locais neste aparelho</div>`;
+ document.getElementById('sidebar').innerHTML=`<div class="brand"><div class="brand-mark">IR</div><div><div class="brand-name">Ítalo ERP</div><div class="brand-sub">Gestão simples · v2.4</div></div></div><div class="side-group-title">PRINCIPAL</div>${all.map(([id,label,ico],i)=>`${i===4?'<div class="side-group-title">GERENCIAMENTO</div>':''}<button class="menu-btn ${view===id?'active':''}" data-action="nav" data-view="${id}">${icon(ico)}${esc(label)}</button>`).join('')}<div class="side-foot"><span class="dot"></span> Dados locais neste aparelho</div>`;
  document.getElementById('bottom-nav').innerHTML=NAV.map(([id,label,ico])=>`<button class="bottom-btn ${active===id?'active':''}" data-action="nav" data-view="${id}" ${active===id?'aria-current="page"':''}>${icon(ico)}<span>${label}</span></button>`).join('');
 }
 function render(){navRender();const main=document.getElementById('main'); const pages={dashboard:renderDashboard,stock:renderStock,sales:renderSales,finance:renderFinance,more:renderMore,clients:()=>renderPersons('clients'),suppliers:()=>renderPersons('suppliers'),entries:renderEntries,warranties:renderWarranties,settings:renderSettings,receivables:renderReceivables}; main.innerHTML=(pages[view]||renderDashboard)();}
@@ -184,9 +219,9 @@ function renderStock(){
  .sort((a,b)=>a.name.localeCompare(b.name));
  return top('Estoque','Veja seus produtos e quantidades.',newButton('Adicionar produto','open-product'))+
  `<div class="filter-line"><div class="searchbox">${icon('search')}<input class="input" data-search="1" placeholder="Buscar produto ou fornecedor" value="${attr(query)}" aria-label="Buscar produtos"/></div><select class="select" data-filter="stock" aria-label="Filtrar estoque"><option value="todos" ${stockFilter==='todos'?'selected':''}>Todos os produtos</option><option value="disponivel" ${stockFilter==='disponivel'?'selected':''}>Com estoque</option><option value="zerado" ${stockFilter==='zerado'?'selected':''}>Sem estoque</option></select></div>`+
- `<div class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Produto</th><th>Disponível</th><th>Custo unitário</th><th>Garantia</th><th class="right">Ações</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${pTitle(p)}</td><td>${stockBadge(p)}</td><td class="money">${money(p.cost)}</td><td>${p.warrantyMonths??0} mês(es)</td><td class="right"><button class="btn btn-sm" data-action="edit-product" data-id="${attr(p.id)}">${icon('edit')} Editar / Entrada</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(p=>`<div class="list-card">${pTitle(p)}<div class="card-right"><div class="tr-main">${money(p.cost)} custo</div>${stockBadge(p)}<div class="quick-row"><button class="btn btn-sm btn-soft" data-action="edit-product" data-id="${attr(p.id)}">${icon('plus')} Entrada / Editar</button></div></div></div>`).join('')}</div>`:empty('Nenhum produto encontrado','Cadastre seu primeiro produto.','open-product','Adicionar produto')}</div>`;
+ `<div class="panel">${rows.length?`<div class="table-wrap"><table><thead><tr><th>Produto</th><th>Disponível</th><th>Custo unitário</th><th>Garantia</th><th class="right">Ações</th></tr></thead><tbody>${rows.map(p=>`<tr><td>${pTitle(p)}</td><td>${stockBadge(p)}</td><td class="money">${money(p.cost)}</td><td>${esc(productWarrantyText(p)||'—')}</td><td class="right"><button class="btn btn-sm" data-action="edit-product" data-id="${attr(p.id)}">${icon('edit')} Editar / Entrada</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(p=>`<div class="list-card">${pTitle(p)}<div class="card-right"><div class="tr-main">${money(p.cost)} custo</div>${p.condition==='seminovo'?b('Seminovo','amber'):''}${stockBadge(p)}<div class="quick-row"><button class="btn btn-sm btn-soft" data-action="edit-product" data-id="${attr(p.id)}">${icon('plus')} Entrada / Editar</button></div></div></div>`).join('')}</div>`:empty('Nenhum produto encontrado','Cadastre seu primeiro produto.','open-product','Adicionar produto')}</div>`;
 }
-const pTitle=p=>`<div class="item-with-logo"><div class="item-logo ${p.tracking==='serial'?'':'violet'}">${esc(p.name.substring(0,2).toUpperCase())}</div><div><div class="item-name">${esc(p.name)}</div><div class="item-meta">${esc(p.brand||p.category)}${p.sku?' · '+esc(p.sku):''}</div>${p.defaultSupplierId?`<div class="item-meta">Fornecedor: ${esc(supplierName(p.defaultSupplierId))}</div>`:''}</div></div>`;
+const pTitle=p=>`<div class="item-with-logo"><div class="item-logo ${p.tracking==='serial'?'':'violet'}">${esc(p.name.substring(0,2).toUpperCase())}</div><div><div class="item-name">${esc(p.name)}</div><div class="item-meta">${esc(p.brand||p.category)}${p.sku?' · '+esc(p.sku):''}</div>${p.defaultSupplierId?`<div class="item-meta">Fornecedor: ${esc(supplierName(p.defaultSupplierId))}</div>`:''}${p.condition==='seminovo'?`<div class="item-meta">Seminovo${p.batteryHealth!==null&&p.batteryHealth!==undefined?' · Bateria '+p.batteryHealth+'%':''}</div>`:''}${productWarrantyText(p)?`<div class="item-meta">Garantia: ${esc(productWarrantyText(p))}</div>`:''}</div></div>`;
 const stockBadge=p=>{const q=available(p.id).qty;return b(`${q} un.`,q===0?'red':p.minStock>0&&q<=p.minStock?'amber':'green');};
 function saleBadge(s){return s.status==='concluida'?b('Concluída','green'):s.status==='encomenda'?b('Encomenda','amber'):b('Cancelada','red');}
 function renderSales(){
@@ -209,12 +244,29 @@ function renderPersons(type){
  const title=isClient?'Clientes':'Fornecedores',singular=isClient?'cliente':'fornecedor';
  return top(title,isClient?'Contatos e histórico de compradores.':'Parceiros que fornecem suas mercadorias.',newButton('Novo '+singular,isClient?'open-client':'open-supplier'))+`<div class="filter-line"><div class="searchbox">${icon('search')}<input class="input" data-search="1" placeholder="Buscar nome, telefone ou cidade" value="${attr(query)}" aria-label="Buscar contatos"/></div></div><div class="panel">${arr.length?`<div class="table-wrap"><table><thead><tr><th>Nome</th><th>Telefone</th><th>Cidade</th><th>Registros vinculados</th><th class="right">Ações</th></tr></thead><tbody>${arr.map(p=>`<tr><td class="tr-main">${esc(p.name)}</td><td>${esc(p.phone||'—')}</td><td>${esc(p.city||'—')}</td><td>${isClient?db.sales.filter(s=>s.clientId===p.id).length:db.entries.filter(e=>e.supplierId===p.id).length}</td><td class="right"><button class="btn btn-sm" data-action="edit-person" data-type="${type}" data-id="${attr(p.id)}">${icon('edit')} Editar</button>${p.phone?` <a class="btn btn-sm" href="https://wa.me/${esc(phoneDigits(p.phone))}" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp de ${attr(p.name)}">WhatsApp</a>`:''}</td></tr>`).join('')}</tbody></table></div><div class="card-list">${arr.map(p=>`<div class="list-card"><div class="item-with-logo"><div class="item-logo violet">${icon('users')}</div><div><div class="item-name">${esc(p.name)}</div><div class="item-meta">${esc(p.city||'Sem cidade')} · ${esc(p.phone||'Sem telefone')}</div></div></div><button class="btn btn-sm" data-action="edit-person" data-type="${type}" data-id="${attr(p.id)}">${icon('edit')}</button></div>`).join('')}</div>`:empty(`Nenhum ${singular} encontrado`,`Cadastre os dados do ${singular} para associar às movimentações.`,isClient?'open-client':'open-supplier','Adicionar '+singular)}</div>`;
 }
+function financeFor(date){
+ const sales=completed().filter(s=>saleEffectiveDate(s)===date);
+ const revenue=amount(sales.reduce((a,s)=>a+saleTotal(s),0));
+ const cost=amount(sales.reduce((a,s)=>a+saleCost(s),0));
+ const profitSales=amount(sales.reduce((a,s)=>a+saleProfit(s),0));
+ const expenses=db.expenses.filter(e=>e.date===date);
+ const spending=amount(expenses.filter(e=>e.type==='despesa').reduce((a,e)=>a+Number(e.amount||0),0));
+ const extraIncome=amount(expenses.filter(e=>e.type==='receita').reduce((a,e)=>a+Number(e.amount||0),0));
+ const warranty=amount(db.warranties.filter(w=>(w.costDate||w.date)===date).reduce((a,w)=>a+Number(w.cost||0),0));
+ return {sales,expenses,revenue,cost,profitSales,spending,extraIncome,warranty,result:amount(profitSales+extraIncome-spending-warranty)};
+}
 function renderFinance(){
- const m=metrics(),period=db.expenses.filter(e=>toMonth(e.date)===monthKey),ops=period.filter(x=>x.type==='despesa').reduce((a,x)=>a+Number(x.amount),0),extra=period.filter(x=>x.type==='receita').reduce((a,x)=>a+Number(x.amount),0),warranty= db.warranties.filter(x=>toMonth(x.costDate||x.date)===monthKey).reduce((a,x)=>a+Number(x.cost||0),0);
- const rows=db.expenses.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)));
- return top('Financeiro','Veja o resultado das vendas e registre despesas.',newButton('Novo lançamento','open-expense'))+`<div class="grid-kpis"><div class="kpi"><div class="kpi-top"><span class="kpi-label">Receita com vendas</span><span class="kpi-icon">${icon('cart')}</span></div><div class="kpi-value">${money(m.revenue)}</div><div class="kpi-foot">Vendas concluídas no mês</div></div><div class="kpi"><div class="kpi-top"><span class="kpi-label">Mercadorias vendidas</span><span class="kpi-icon amber">${icon('box')}</span></div><div class="kpi-value">${money(m.costs)}</div><div class="kpi-foot">Custo das unidades vendidas</div></div><div class="kpi"><div class="kpi-top"><span class="kpi-label">Despesas operacionais</span><span class="kpi-icon red">${icon('wallet')}</span></div><div class="kpi-value">${money(ops+warranty)}</div><div class="kpi-foot">Inclui ${money(warranty)} de garantias</div></div><div class="kpi"><div class="kpi-top"><span class="kpi-label">Resultado do mês</span><span class="kpi-icon green">${icon('trend')}</span></div><div class="kpi-value ${m.profit<0?'negative':''}">${money(m.profit)}</div><div class="kpi-foot">Inclui ${money(extra)} em receitas extras</div></div></div>`+
- `<div class="notice info">${icon('info')}<span>O resultado é uma estimativa gerencial, não um extrato de caixa. Compras para estoque não são lançadas automaticamente como despesas; seu custo entra no resultado quando os itens são vendidos. Taxas e fretes são informados em cada venda.</span></div>`+
- `<div class="panel"><div class="panel-head"><h2 class="section-title">Lançamentos avulsos</h2><span class="badge-count">${rows.length} lançamento(s)</span></div>${rows.length?`<div class="table-wrap"><table><thead><tr><th>Descrição</th><th>Data</th><th>Categoria</th><th>Situação</th><th>Valor</th><th></th></tr></thead><tbody>${rows.map(e=>`<tr><td class="tr-main">${esc(e.description)}</td><td>${dateText(e.date)}</td><td>${esc(e.category)}</td><td>${b(e.paid?'Pago / recebido':'Pendente',e.paid?'green':'amber')}</td><td class="money ${e.type==='despesa'?'negative':'positive'}">${e.type==='despesa'?'-':'+'} ${money(e.amount)}</td><td><button class="btn btn-sm" data-action="edit-expense" data-id="${attr(e.id)}">${icon('edit')}</button></td></tr>`).join('')}</tbody></table></div><div class="card-list">${rows.map(e=>`<div class="list-card"><div class="item-with-logo"><div class="item-logo ${e.type==='despesa'?'orange':''}">${icon('wallet')}</div><div><div class="item-name">${esc(e.description)}</div><div class="item-meta">${dateText(e.date)} · ${esc(e.category)}</div></div></div><div class="card-right"><div class="tr-main ${e.type==='despesa'?'negative':'positive'}">${e.type==='despesa'?'-':'+'}${money(e.amount)}</div><button class="btn btn-sm" data-action="edit-expense" data-id="${attr(e.id)}">${icon('edit')}</button></div></div>`).join('')}</div>`:empty('Nenhum lançamento','Despesas operacionais e receitas extras aparecerão aqui.','open-expense','Registrar lançamento')}</div>`;
+ const m=metrics(),d=financeFor(financeDate),rows=db.expenses.filter(e=>e.date===financeDate).sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));
+ return top('Financeiro','Lucro e gastos do dia, sem complicação.',newButton('Nova despesa / receita','open-expense'))+
+ `<div class="daily-filter"><label for="finance-date">Consultar dia</label><input type="date" class="input" id="finance-date" data-finance-date value="${financeDate}"/><button class="btn" type="button" data-action="finance-today">Hoje</button></div>`+
+ `<div class="grid-kpis daily-cards"><div class="kpi"><div class="kpi-label">Vendas do dia</div><div class="kpi-value">${money(d.revenue)}</div><div class="kpi-foot">${d.sales.length} venda(s)</div></div>
+ <div class="kpi"><div class="kpi-label">Lucro das vendas</div><div class="kpi-value">${money(d.profitSales)}</div><div class="kpi-foot">Vendas menos custos dos produtos e adicionais</div></div>
+ <div class="kpi"><div class="kpi-label">Gastos do dia</div><div class="kpi-value">${money(d.spending+d.warranty)}</div><div class="kpi-foot">Despesas registradas + garantias</div></div>
+ <div class="kpi"><div class="kpi-label">Resultado do dia</div><div class="kpi-value ${d.result<0?'negative':'positive'}">${money(d.result)}</div><div class="kpi-foot">Inclui ${money(d.extraIncome)} em receitas extras</div></div></div>`+
+ `<div class="panel panel-pad"><h2 class="section-title">Resumo do mês (${esc(monthKey.split('-').reverse().join('/'))})</h2><div class="stat-pair"><span>Vendas do mês</span><strong>${money(m.revenue)}</strong></div><div class="stat-pair"><span>Lucro líquido estimado do mês</span><strong class="${m.profit<0?'negative':'positive'}">${money(m.profit)}</strong></div><div class="stat-pair"><span>Em aberto para receber</span><strong>${money(m.receivable)}</strong></div></div>`+
+ `<div class="panel"><div class="panel-head"><h2 class="section-title">Despesas e receitas de ${dateText(financeDate)}</h2></div>${rows.length?`<div class="daily-entry-list">${rows.map(e=>`<div class="receive-row"><div class="receive-copy"><strong>${esc(e.description)}</strong><small>${esc(e.category||'Geral')} · ${e.paid?'Pago / recebido':'Pendente'}</small></div><div class="card-right"><strong class="${e.type==='despesa'?'negative':'positive'}">${e.type==='despesa'?'-':'+'}${money(e.amount)}</strong><div><button class="btn btn-sm" data-action="edit-expense" data-id="${attr(e.id)}">Editar</button></div></div></div>`).join('')}</div>`:empty('Sem lançamentos neste dia','Use “Nova despesa / receita” para registrar seus gastos.')}</div>`+
+ `<div class="panel"><div class="panel-head"><h2 class="section-title">Vendas de ${dateText(financeDate)}</h2></div>${d.sales.length?d.sales.map(x=>`<button class="activity activity-button" type="button" data-action="sale-detail" data-id="${attr(x.id)}"><div class="activity-icon">${icon('cart')}</div><div><div class="activity-title">${esc(saleClientName(x))}</div><div class="activity-sub">${esc(x.items.map(i=>i.productName).join(', '))}</div></div><div class="activity-right">${money(saleTotal(x))}</div></button>`).join(''):empty('Sem vendas neste dia','As vendas concluídas no dia aparecerão aqui.')}</div>`+
+ `<div class="notice info">${icon('info')}<span>Resultado gerencial por data da venda/despesa, não saldo bancário. Mercadorias compradas entram no custo quando vendidas. Recebimentos posteriores podem ocorrer em outro dia.</span></div>`;
 }
 function renderWarranties(){
  const rows=db.warranties.slice().sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)));
@@ -230,7 +282,7 @@ function renderSettings(){
  <div class="settings-card">${icon('layers')}<h3>Dados de demonstração</h3><p>Preencha o ERP com exemplos fictícios de aparelhos, acessórios, vendas, clientes, entrada, despesa e garantia. Útil para testar as telas.</p><button class="btn" data-action="seed">${icon('plus')} Carregar demonstração</button></div>
  <div class="settings-card dangerzone">${icon('trash')}<h3>Apagar dados de teste</h3><p>Apaga os registros desta versão neste navegador. A operação não pode ser desfeita sem um backup.</p><button class="btn btn-danger" data-action="reset">${icon('trash')} Limpar todos os dados</button></div></div>
  <div class="notice margin-top">${icon('warning')}<span><strong>Atenção:</strong> LocalStorage não é um banco de dados seguro nem sincronizado. No Safari do iPhone, dados podem ser removidos ao limpar o histórico ou os dados do site, ou por políticas de armazenamento. Esta versão não tem login seguro e não deve ser usada para informações sensíveis. Faça backup antes de testes importantes.</span></div>
- <div class="panel panel-pad margin-top"><h2 class="section-title">Sobre a versão de testes</h2><p class="muted-block">ERP 2.3 · Dados armazenados sob a chave <code>${KEY}</code> · Modelo de dados v${VERSION}. Esta versão é independente do ERP original: os backups da versão antiga não são importados automaticamente.</p><div class="stat-pair"><span>Produtos</span><strong>${db.products.length}</strong></div><div class="stat-pair"><span>Entradas</span><strong>${db.entries.length}</strong></div><div class="stat-pair"><span>Vendas registradas</span><strong>${db.sales.length}</strong></div><div class="stat-pair"><span>Última alteração</span><strong>${esc(db.updatedAt?new Date(db.updatedAt).toLocaleString('pt-BR'):'—')}</strong></div></div>`;
+ <div class="panel panel-pad margin-top"><h2 class="section-title">Sobre a versão de testes</h2><p class="muted-block">ERP 2.5 · Dados armazenados sob a chave <code>${KEY}</code> · Modelo de dados v${VERSION}. Esta versão é independente do ERP original: os backups da versão antiga não são importados automaticamente.</p><div class="stat-pair"><span>Produtos</span><strong>${db.products.length}</strong></div><div class="stat-pair"><span>Entradas</span><strong>${db.entries.length}</strong></div><div class="stat-pair"><span>Vendas registradas</span><strong>${db.sales.length}</strong></div><div class="stat-pair"><span>Última alteração</span><strong>${esc(db.updatedAt?new Date(db.updatedAt).toLocaleString('pt-BR'):'—')}</strong></div></div>`;
 }
 function modalFrame(title,subtitle,fields,submitLabel='Salvar',size='',footer=''){
  currentModal=title;
@@ -246,24 +298,33 @@ function closeModal(){document.getElementById('modal-root').innerHTML='';documen
 const field=(name,label,value='',type='text',extras='')=>`<div class="field"><label for="f-${name}">${esc(label)}</label><input class="input" id="f-${name}" name="${name}" type="${type}" value="${attr(value)}" ${extras}/></div>`;
 const selectField=(name,label,options,extra='')=>`<div class="field"><label for="f-${name}">${esc(label)}</label><select class="select" id="f-${name}" name="${name}" ${extra}>${options}</select></div>`;
 function productModal(id=''){
- const p=prod(id)||{};
- const qty=id?available(id).qty:0;
- const serialSource=id&&p.tracking==='serial';
+ const p=prod(id)||{}, qty=id?available(id).qty:0;
+ const condition=p.condition||'novo';
  const form=`<input type="hidden" name="id" value="${attr(id)}"/>
  <div class="simple-form">
  ${field('name','Nome do produto *',p.name||'','text','required maxlength="130" placeholder="Ex.: iPhone 15 Pro 256 GB"')}
  ${field('brand','Marca',p.brand||'','text','maxlength="70" placeholder="Ex.: Apple, Samsung, JBL"')}
- <div class="field"><label for="f-addSerials">IMEI ou número de série <span class="optional">(se houver)</span></label><textarea class="textarea" id="f-addSerials" name="addSerials" rows="2" placeholder="Um número por linha; deixe vazio para acessórios" autocapitalize="characters" spellcheck="false"></textarea><div class="helper">Para vários aparelhos, informe um IMEI por linha. A quantidade será contada automaticamente.</div></div>
- ${id?`<div class="existing-qty">Estoque atual: <strong>${qty} unidade(s)</strong>. Informe abaixo apenas o que deseja acrescentar.</div>`:''}
- ${field('addQuantity',id?'Quantidade para adicionar':'Quantidade *',id?0:1,'number','min="0" max="100000" step="1" inputmode="numeric" required')}
- <div class="field"><label for="f-supplierName">Fornecedor</label><input class="input" id="f-supplierName" name="supplierName" type="text" maxlength="130" list="supplier-names" autocomplete="off" placeholder="Nome do fornecedor" value="${attr(supplier(p.defaultSupplierId)?.name||'')}"/><datalist id="supplier-names">${db.suppliers.map(x=>`<option value="${attr(x.name)}"></option>`).join('')}</datalist></div>
- ${field('cost','Preço de custo por unidade (R$)',p.cost??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
- ${field('warrantyMonths','Garantia informada (meses)',p.warrantyMonths??3,'number','min="0" max="120" step="1" inputmode="numeric"')}
- ${serialSource?`<div class="helper">Este produto já é controlado por IMEI. Para adicionar unidades, informe cada número.</div>`:''}
+ ${selectField('condition','Estado do produto',`<option value="novo" ${condition==='novo'?'selected':''}>Novo</option><option value="seminovo" ${condition==='seminovo'?'selected':''}>Seminovo</option>`,'data-condition="1"')}
+ <div id="used-product-fields" class="used-product-fields ${condition==='seminovo'?'':'hidden'}">
+ ${field('batteryHealth','Saúde da bateria (%) — se houver',p.batteryHealth??'','number','min="0" max="100" step="1" inputmode="numeric" placeholder="Ex.: 87"')}
+ <div class="field"><label for="f-repairs">Peças trocadas / reparos</label><textarea class="textarea" id="f-repairs" name="repairs" rows="2" maxlength="500" placeholder="Ex.: Bateria original, tela substituída...">${esc(p.repairs||'')}</textarea></div>
+ <div class="field"><label for="f-conditionNotes">Detalhes e observações do seminovo</label><textarea class="textarea" id="f-conditionNotes" name="conditionNotes" rows="2" maxlength="700" placeholder="Ex.: Marcas laterais, caixa, carregador...">${esc(p.conditionNotes||'')}</textarea></div>
+ </div>
+ <div class="field"><label for="f-addSerials">IMEI / número de série (se houver)</label><textarea class="textarea" name="addSerials" id="f-addSerials" rows="2" placeholder="Um por linha; deixe em branco se não tiver" autocapitalize="characters" spellcheck="false"></textarea><div class="helper">Um número por linha. A quantidade é preenchida automaticamente. Para seminovos com bateria/reparos diferentes, cadastre cada unidade separadamente.</div></div>
+ ${id?`<div class="existing-qty">No estoque: <strong>${qty} unidade(s)</strong>. A quantidade abaixo <strong>acrescenta</strong> unidades.</div>`:''}
+ ${field('addQuantity',id?'Adicionar ao estoque':'Quantidade inicial *',id?0:1,'number','min="0" max="100000" step="1" inputmode="numeric" required')}
+ <div class="field"><label for="f-supplierName">Fornecedor</label><input class="input" id="f-supplierName" name="supplierName" type="text" maxlength="130" list="supplier-names" autocomplete="off" value="${attr(supplier(p.defaultSupplierId)?.name||'')}" placeholder="Nome do fornecedor"/><datalist id="supplier-names">${db.suppliers.map(x=>`<option value="${attr(x.name)}"></option>`).join('')}</datalist></div>
+ ${field('cost','Preço de custo (R$) por unidade',p.cost??'','number','min="0" step="0.01" inputmode="decimal" placeholder="0,00"')}
+ <div class="field"><label for="f-warrantyText">Garantia do aparelho</label><input class="input" id="f-warrantyText" name="warrantyText" type="text" maxlength="180" value="${attr(productWarrantyText(p))}" placeholder="Ex.: 30 dias, 1 ano Apple, Apple até 15/01/2027"/><div class="helper">Campo livre. Escreva a cobertura ou prazo que realmente se aplica ao aparelho. Não presumimos garantia por ser novo ou seminovo.</div></div>
  ${id?`<button type="button" class="btn btn-danger btn-sm" data-action="delete-product" data-id="${attr(id)}">${icon('trash')} Excluir produto sem movimentação</button>`:''}
  </div>`;
- modalFrame(id?'Editar produto':'Adicionar produto',id?'Altere dados ou acrescente unidades.':'Preencha só o necessário.',form,'Salvar produto');
+ modalFrame(id?'Editar produto':'Adicionar produto',id?'Edite ou acrescente unidades.':'Cadastro rápido do estoque.',form,'Salvar produto');
  document.getElementById('modal-form').dataset.form='product';
+}
+function productConditionChange(){
+ const f=document.getElementById('modal-form');if(f?.dataset.form!=='product')return;
+ document.getElementById('used-product-fields')?.classList.toggle('hidden',f.elements.condition.value!=='seminovo');
+
 }
 function productTrackingChange(){}
 function productSerialsInput(){
@@ -281,7 +342,7 @@ function personModal(type,id=''){
  modalFrame(id?'Editar '+singular:'Novo '+singular,'Informações básicas de contato.',`<input type="hidden" name="id" value="${attr(id)}"/><input type="hidden" name="type" value="${type}"/><div class="fields mobile-one">${field('name','Nome *',p.name,'text','required maxlength="130"')}${field('phone','WhatsApp / telefone',p.phone,'tel','maxlength="26"')}${field('city','Cidade / UF',p.city,'text','maxlength="90"')}<div class="field"><label for="f-notes">Observações</label><textarea class="textarea" id="f-notes" name="notes" maxlength="900">${esc(p.notes||'')}</textarea></div></div>${id?`<hr class="form-divider"/><button class="btn btn-danger btn-sm" type="button" data-action="delete-person" data-type="${type}" data-id="${attr(id)}">${icon('trash')} Excluir contato não utilizado</button>`:''}`,'Salvar');document.getElementById('modal-form').dataset.form='person';
 }
 function expenseModal(id=''){
- const e=byId(db.expenses,id)||{};modalFrame(id?'Editar lançamento':'Novo lançamento','Registre despesas ou receitas fora das vendas.',`<input type="hidden" name="id" value="${attr(id)}"/><div class="fields">${selectField('type','Tipo',`<option value="despesa" ${e.type==='despesa'?'selected':''}>Despesa</option><option value="receita" ${e.type==='receita'?'selected':''}>Receita extra</option>`)}${field('date','Data',e.date||localDate(),'date','required')}<div class="field span2">${field('description','Descrição *',e.description||'','text','required maxlength="130"')}</div>${field('category','Categoria',e.category||'Operacional','text','maxlength="70"')}${field('amount','Valor (R$) *',e.amount??'','number','min="0" step="0.01" required')}<div class="field span2"><label><input type="checkbox" name="paid" ${e.id&&!e.paid?'':'checked'}/> Já foi pago / recebido</label><span class="helper">O resultado gerencial considera despesas e receitas pelo lançamento, mesmo pendentes.</span></div></div>${id?`<hr class="form-divider"/><button class="btn btn-danger btn-sm" type="button" data-action="delete-expense" data-id="${attr(id)}">${icon('trash')} Excluir lançamento</button>`:''}`,'Salvar lançamento');document.getElementById('modal-form').dataset.form='expense';
+ const e=byId(db.expenses,id)||{};modalFrame(id?'Editar lançamento':'Novo lançamento','Registre despesas ou receitas fora das vendas.',`<input type="hidden" name="id" value="${attr(id)}"/><div class="fields">${selectField('type','Tipo',`<option value="despesa" ${e.type==='despesa'?'selected':''}>Despesa</option><option value="receita" ${e.type==='receita'?'selected':''}>Receita extra</option>`)}${field('date','Data',e.date||financeDate,'date','required')}<div class="field span2">${field('description','Descrição *',e.description||'','text','required maxlength="130"')}</div>${field('category','Categoria',e.category||'Operacional','text','maxlength="70"')}${field('amount','Valor (R$) *',e.amount??'','number','min="0" step="0.01" required')}<div class="field span2"><label><input type="checkbox" name="paid" ${e.id&&!e.paid?'':'checked'}/> Já foi pago / recebido</label><span class="helper">O resultado gerencial considera despesas e receitas pelo lançamento, mesmo pendentes.</span></div></div>${id?`<hr class="form-divider"/><button class="btn btn-danger btn-sm" type="button" data-action="delete-expense" data-id="${attr(id)}">${icon('trash')} Excluir lançamento</button>`:''}`,'Salvar lançamento');document.getElementById('modal-form').dataset.form='expense';
 }
 function readSaleDraft(){
  const f=document.getElementById('modal-form');if(!f||f.dataset.form!=='sale')return;
@@ -290,30 +351,31 @@ function readSaleDraft(){
 function saleModal(){
  if(!db.products.length){toast('Adicione um produto antes de vender.','error');productModal();return;}
  const choices=productOptions();
- modalFrame('Nova venda','Registre sua venda em poucos campos.',`
+ modalFrame('Nova venda','Selecione o produto e conclua em poucos toques.',`
  <div class="simple-form">
  ${field('customerName','Cliente *','','text','required maxlength="130" placeholder="Nome do comprador"')}
  ${selectField('saleProductId','Produto *',choices,'required')}
- <div class="simple-two">${field('saleQuantity','Quantidade',1,'number','min="1" step="1" inputmode="numeric" required')}${field('saleUnitPrice','Preço de venda por unidade (R$)','','number','min="0" step="0.01" inputmode="decimal" required')}</div>
- <div class="sale-availability" id="sale-stock-tip">Selecione um produto para ver a disponibilidade.</div>
+ <div class="simple-two">${field('saleQuantity','Quantidade',1,'number','min="1" step="1" inputmode="numeric" required')}${field('saleUnitPrice','Preço da venda por unidade (R$)','','number','min="0" step="0.01" inputmode="decimal" required')}</div>
+ <div class="sale-availability" id="sale-stock-tip">Selecione um produto para ver o estoque.</div>
  <div id="sale-serial-pickers"></div>
- ${field('saleExtras','Custos adicionais (R$) — opcional',0,'number','min="0" step="0.01" inputmode="decimal"')}
- <div class="simple-two">${field('saleWarrantyMonths','Garantia para o cliente (meses)',3,'number','min="0" max="120" step="1" inputmode="numeric"')}
- ${selectField('paymentMethod','Forma de pagamento',['Pix','Dinheiro','Débito','Crédito','Transferência','Outro'].map(x=>`<option>${x}</option>`).join(''))}</div>
- ${field('amountPaid','Valor recebido (R$) — opcional','','number','min="0" step="0.01" inputmode="decimal" placeholder="Em branco = venda paga integralmente"')}
- <div class="helper">Se ainda não recebeu, informe 0. O valor ficará em “A receber”.</div>
+ <div id="sale-condition-preview"></div>
+ ${field('saleExtras','Custos adicionais (R$), se houver',0,'number','min="0" step="0.01" inputmode="decimal"')}
+ <div class="field"><label for="f-saleWarrantyText">Garantia informada ao cliente</label><input class="input" id="f-saleWarrantyText" name="saleWarrantyText" type="text" maxlength="180" placeholder="Ex.: 30 dias, 1 ano Apple, até 15/01/2027"/><div class="helper">Sugestão puxada do produto. Você pode mudar ou deixar em branco.</div></div>
+ ${selectField('paymentMethod','Forma de pagamento',['Pix','Dinheiro','Débito','Crédito','Transferência','Outro'].map(x=>`<option>${x}</option>`).join(''))}
+ ${field('amountPaid','Valor já recebido (R$) — opcional','','number','min="0" step="0.01" inputmode="decimal" placeholder="Em branco = pago integralmente"')}
+ <div class="helper">Se ainda não recebeu, informe 0. O restante irá para “A receber”. O texto de garantia não altera os direitos legais do consumidor.</div>
  <div class="simple-sale-total">Total da venda <strong id="live-sale-total">${money(0)}</strong></div>
  </div>`,'Salvar venda');
  document.getElementById('modal-form').dataset.form='sale-simple';
 }
 function saleProductChange(resetDefaults=true){
  const f=document.getElementById('modal-form');if(f?.dataset.form!=='sale-simple')return;
- const p=prod(f.elements.saleProductId.value), tip=document.getElementById('sale-stock-tip');
- if(!p){tip.textContent='Selecione um produto para ver a disponibilidade.';document.getElementById('sale-serial-pickers').innerHTML='';saleCalcTotal();return;}
- const stock=available(p.id),q=f.elements.saleQuantity;
- q.max=stock.qty;
- if(resetDefaults){q.value=1;f.elements.saleUnitPrice.value=p.price||0;f.elements.saleWarrantyMonths.value=p.warrantyMonths??3;}
- tip.textContent=`${stock.qty} unidade(s) disponível(is) no estoque.`;
+ const p=prod(f.elements.saleProductId.value),tip=document.getElementById('sale-stock-tip'),preview=document.getElementById('sale-condition-preview');
+ if(!p){tip.textContent='Selecione um produto para ver o estoque.';document.getElementById('sale-serial-pickers').innerHTML='';preview.innerHTML='';saleCalcTotal();return;}
+ const stock=available(p.id),q=f.elements.saleQuantity;q.max=stock.qty;
+ if(resetDefaults){q.value=1;f.elements.saleUnitPrice.value=p.price||0;f.elements.saleWarrantyText.value=productWarrantyText(p);}
+ tip.textContent=`${stock.qty} unidade(s) disponível(is).`;
+ preview.innerHTML=p.condition==='seminovo'?`<div class="sale-used-preview"><strong>Seminovo</strong>${p.batteryHealth!==null&&p.batteryHealth!==undefined&&p.batteryHealth!==''?' · Bateria: '+esc(p.batteryHealth)+'%':''}${p.repairs?'<div>Reparos: '+esc(p.repairs)+'</div>':''}${p.conditionNotes?'<div>Detalhes: '+esc(p.conditionNotes)+'</div>':''}</div>`:'';
  saleSerialPickers();saleCalcTotal();
 }
 function saleSerialPickers(){
@@ -372,7 +434,7 @@ function saleDetail(id){
  const s=byId(db.sales,id);if(!s)return;
  const totals=saleTotal(s),cost=saleCost(s),profit=saleProfit(s);
  const rows=s.items.map(i=>`<div class="stat-pair"><div><strong>${esc(i.productName)}</strong><div class="tr-sub">${i.quantity} x ${money(i.unitPrice)}${i.serials?.length?' · '+esc(i.serials.join(', ')):''}</div></div><strong>${money(i.quantity*i.unitPrice)}</strong></div>`).join('');
- const fields=`<div class="mini-head"><span class="small muted">Venda ${esc(id.slice(0,8).toUpperCase())} · ${dateText(saleEffectiveDate(s))}</span>${saleBadge(s)}</div><div class="details-grid"><div class="details-box"><div class="details-box-label">Cliente</div><div class="details-box-value" style="font-size:14px">${esc(saleClientName(s))}</div></div><div class="details-box"><div class="details-box-label">Pagamento</div><div class="details-box-value" style="font-size:14px">${esc(s.paymentMethod)}${Number(s.installments||1)>1?' · '+s.installments+'x':''}</div></div></div><div class="form-heading">Itens</div>${rows}<div class="form-heading">Resumo financeiro</div>${[['Total da venda',totals],['Custo das mercadorias',-cost],['Taxas do pagamento',-Number(s.fees||0)],['Frete pago pela loja',-Number(s.shipping||0)],['Outras despesas',-Number(s.otherCosts||0)]].map(([l,v])=>`<div class="stat-pair"><span>${esc(l)}</span><strong>${v<0?'-':''}${money(Math.abs(v))}</strong></div>`).join('')}<div class="stat-pair"><strong>Resultado estimado</strong><strong class="${profit>=0?'positive':'negative'}">${s.status==='concluida'?money(profit):'Não reconhecido'}</strong></div><div class="stat-pair"><span>Já recebido</span><strong>${money(s.amountPaid||0)}</strong></div>${s.status==='concluida'?`<div class="stat-pair"><span>A receber</span><strong>${money(Math.max(0,totals-(s.amountPaid||0)))}</strong></div>`:''}${s.warrantyMonths!==undefined?`<div class="stat-pair"><span>Garantia informada</span><strong>${s.warrantyMonths} mês(es)</strong></div>`:''}${s.notes?`<div class="form-heading">Observações</div><div class="muted-block">${esc(s.notes)}</div>`:''}<div class="warn-inline">Cancelamentos devolvem as unidades ao estoque. O registro da venda continua no histórico.</div>`;
+ const fields=`<div class="mini-head"><span class="small muted">Venda ${esc(id.slice(0,8).toUpperCase())} · ${dateText(saleEffectiveDate(s))}</span>${saleBadge(s)}</div><div class="details-grid"><div class="details-box"><div class="details-box-label">Cliente</div><div class="details-box-value" style="font-size:14px">${esc(saleClientName(s))}</div></div><div class="details-box"><div class="details-box-label">Pagamento</div><div class="details-box-value" style="font-size:14px">${esc(s.paymentMethod)}${Number(s.installments||1)>1?' · '+s.installments+'x':''}</div></div></div><div class="form-heading">Itens</div>${rows}<div class="form-heading">Resumo financeiro</div>${[['Total da venda',totals],['Custo das mercadorias',-cost],['Taxas do pagamento',-Number(s.fees||0)],['Frete pago pela loja',-Number(s.shipping||0)],['Outras despesas',-Number(s.otherCosts||0)]].map(([l,v])=>`<div class="stat-pair"><span>${esc(l)}</span><strong>${v<0?'-':''}${money(Math.abs(v))}</strong></div>`).join('')}<div class="stat-pair"><strong>Resultado estimado</strong><strong class="${profit>=0?'positive':'negative'}">${s.status==='concluida'?money(profit):'Não reconhecido'}</strong></div><div class="stat-pair"><span>Já recebido</span><strong>${money(s.amountPaid||0)}</strong></div>${s.status==='concluida'?`<div class="stat-pair"><span>A receber</span><strong>${money(Math.max(0,totals-(s.amountPaid||0)))}</strong></div>`:''}${saleWarrantyText(s)?`<div class="stat-pair"><span>Garantia informada ao cliente</span><strong>${esc(saleWarrantyText(s))}</strong></div>`:!('customerWarrantyText' in s)&&s.customerWarranty?`<div class="stat-pair"><span>Garantia informada ao cliente</span><strong>${formatWarranty(s.customerWarranty.value,s.customerWarranty.unit)}</strong></div>`:!('customerWarrantyText' in s)&&s.warrantyMonths!==undefined?`<div class="stat-pair"><span>Garantia informada</span><strong>${s.warrantyMonths} mês(es)</strong></div>`:''}${s.notes?`<div class="form-heading">Observações</div><div class="muted-block">${esc(s.notes)}</div>`:''}<div class="warn-inline">Cancelamentos devolvem as unidades ao estoque. O registro da venda continua no histórico.</div>`;
  const footer=`${s.status==='concluida'?`<button class="btn btn-soft" type="button" data-action="show-receipt" data-id="${attr(id)}">${icon('download')} Recibo</button>`:''}${s.status==='encomenda'?`<button class="btn btn-soft" type="button" data-action="finalize-order" data-id="${attr(id)}">Concluir encomenda</button>`:''}${s.status!=='cancelada'?`<button class="btn btn-danger" type="button" data-action="cancel-sale" data-id="${attr(id)}">Cancelar</button>`:''}${s.status==='concluida'?`<button class="btn" type="button" data-action="receive-sale" data-id="${attr(id)}">Registrar recebimento</button>`:''}`;
  modalFrame('Detalhes da venda','Confira os itens, valores e status.',fields,'Fechar','wide',footer);document.getElementById('modal-form').dataset.form='read-only';document.querySelector('#modal-form button[type=submit]').textContent='Fechar';
 }
@@ -400,33 +462,24 @@ function warrantyModal(id=''){
 }
 function warrantySaleChange(){const f=document.getElementById('modal-form');if(!f||f.dataset.form!=='warranty')return;f.elements.saleItem.innerHTML=warrantyItemOptions(f.elements.saleId.value);}
 function receiptText(s){
- const sum=saleTotal(s);const paid=Number(s.amountPaid||0),due=Math.max(0,sum-paid);
- const lines=[
-  'RECIBO DE VENDA',
-  db.settings.businessName||'Ítalo Rocha',
-  '----------------------------',
-  `Venda: ${String(s.id).slice(0,8).toUpperCase()}`,
-  `Data: ${dateText(saleEffectiveDate(s))}`,
-  `Cliente: ${saleClientName(s)}`,
-  '',
-  'PRODUTOS'
- ];
+ const sum=saleTotal(s),paid=Number(s.amountPaid||0),due=Math.max(0,sum-paid);
+ const w=('customerWarrantyText' in s)?null:(s.customerWarranty || (s.warrantyMonths!==undefined?{value:s.warrantyMonths,unit:'meses'}:null));
+ const lines=['RECIBO DE VENDA',db.settings.businessName||'Ítalo Rocha','----------------------------',`Venda: ${String(s.id).slice(0,8).toUpperCase()}`,`Data: ${dateText(saleEffectiveDate(s))}`,`Cliente: ${saleClientName(s)}`,'','PRODUTOS'];
  for(const item of s.items||[]){
   lines.push(`${item.productName} — ${item.quantity} x ${money(item.unitPrice)}`);
   if(item.serials?.length)lines.push('IMEI / Série: '+item.serials.join(', '));
- }
- lines.push('',`Total: ${money(sum)}`,`Pagamento: ${s.paymentMethod||'Não informado'}`);
- if(due>0.005){lines.push(`Recebido: ${money(paid)}`,`A receber: ${money(due)}`);}
- if(s.warrantyMonths!==undefined&&s.warrantyMonths!==null){
-  lines.push(`Garantia informada: ${s.warrantyMonths} mês(es)`);
-  const [y,m,d]=String(saleEffectiveDate(s)).slice(0,10).split('-').map(Number);
-  if(y&&m&&d&&Number(s.warrantyMonths)>0){
-   const last=new Date(y,m-1+Number(s.warrantyMonths)+1,0).getDate();
-   const end=new Date(y,m-1+Number(s.warrantyMonths),Math.min(d,last));
-   lines.push(`Previsão de término: ${dateText(localDate(end))}`);
+  if(item.condition==='seminovo'){
+   lines.push('Condição: Seminovo');
+   if(item.batteryHealth!==null&&item.batteryHealth!==undefined&&item.batteryHealth!=='')lines.push('Saúde da bateria: '+item.batteryHealth+'%');
+   if(item.repairs)lines.push('Reparos / peças: '+item.repairs);
+   if(item.conditionNotes)lines.push('Observações: '+item.conditionNotes);
   }
  }
- lines.push('----------------------------','Recibo simples de venda. Não substitui documento fiscal quando obrigatório.');
+ lines.push('',`Total: ${money(sum)}`,`Pagamento: ${s.paymentMethod||'Não informado'}`);
+ if(due>0.005)lines.push(`Recebido: ${money(paid)}`,`A receber: ${money(due)}`);
+ if(saleWarrantyText(s))lines.push('Garantia informada ao cliente: '+saleWarrantyText(s));
+ if(w){lines.push('Garantia informada ao cliente: '+formatWarranty(w.value,w.unit));const end=warrantyEnd(saleEffectiveDate(s),w.value,w.unit);if(end)lines.push('Prazo informado até: '+dateText(end));}
+ lines.push('----------------------------','Recibo simples de venda. Não substitui documento fiscal quando obrigatório.','Prazos informados não afastam os direitos de garantia legal.');
  return lines.join('\n');
 }
 function receiptModal(id){
@@ -450,29 +503,34 @@ function saveForm(ev){
  const mode=form.dataset.form;const fd=new FormData(form);
  try{
  if(mode==='product'){
-  const id=String(fd.get('id')||'');const name=required(fd,'name','o nome do produto');
+  const id=String(fd.get('id')||''),name=required(fd,'name','o nome do produto');
   const serials=String(fd.get('addSerials')||'').split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean);
   const addQuantity=numericField(fd,'addQuantity');
-  if(!Number.isInteger(addQuantity)||addQuantity<0||addQuantity>100000)throw Error('Quantidade inválida. Informe um número inteiro de 0 a 100.000.');
+  if(!Number.isInteger(addQuantity)||addQuantity<0||addQuantity>100000)throw Error('Informe quantidade inteira entre 0 e 100.000.');
   const current=id?prod(id):null;if(id&&!current)throw Error('Produto não encontrado.');
   const tracking=current?.tracking==='serial'?'serial':serials.length?'serial':current?.tracking||'quantity';
-  if(tracking==='serial'&&addQuantity!==serials.length)throw Error(`Informe um IMEI/número de série para cada uma das ${addQuantity} unidade(s).`);
-  if(tracking==='quantity'&&serials.length)throw Error('Não é possível adicionar IMEI a um produto já controlado por quantidade. Cadastre um novo produto.');
-  if(new Set(serials.map(x=>x.toUpperCase())).size!==serials.length)throw Error('Você informou números de série repetidos.');
+  if(tracking==='serial'&&addQuantity!==serials.length)throw Error(`Informe um IMEI/série para cada uma das ${addQuantity} unidade(s).`);
+  if(tracking==='quantity'&&serials.length)throw Error('Produto já controlado por quantidade. Cadastre outro produto para IMEI.');
+  if(new Set(serials.map(x=>x.toUpperCase())).size!==serials.length)throw Error('IMEIs/séries repetidos.');
   const existing=new Set(db.entries.flatMap(e=>e.serials||[]).map(x=>String(x).toUpperCase()));
-  if(serials.some(x=>existing.has(x.toUpperCase())))throw Error('Um IMEI/número de série já consta no estoque ou no histórico.');
-  const warrantyMonths=numericField(fd,'warrantyMonths',3);
-  if(!Number.isInteger(warrantyMonths)||warrantyMonths>120)throw Error('Informe a garantia em meses (0 a 120).');
-  const supplierName=String(fd.get('supplierName')||'').trim();
-  if(supplierName.length>130)throw Error('Nome do fornecedor muito longo.');
-  const record={name,brand:String(fd.get('brand')||'').trim(),tracking,cost:numericField(fd,'cost'),warrantyMonths};
+  if(serials.some(x=>existing.has(x.toUpperCase())))throw Error('Este IMEI/série já consta no histórico.');
+  const supplierName=String(fd.get('supplierName')||'').trim();if(supplierName.length>130)throw Error('Nome do fornecedor muito longo.');
+  const condition=String(fd.get('condition')||'novo');if(!['novo','seminovo'].includes(condition))throw Error('Estado inválido.');
+  const batteryRaw=String(fd.get('batteryHealth')||'').trim();const batteryHealth=batteryRaw===''?null:Number(batteryRaw);
+  if(batteryHealth!==null&&(!Number.isInteger(batteryHealth)||batteryHealth<0||batteryHealth>100))throw Error('Saúde de bateria deve ser um número de 0 a 100.');
+  const record={name,brand:String(fd.get('brand')||'').trim(),tracking,cost:numericField(fd,'cost'),condition,
+   batteryHealth:condition==='seminovo'?batteryHealth:null,repairs:condition==='seminovo'?String(fd.get('repairs')||'').trim():'',
+   conditionNotes:condition==='seminovo'?String(fd.get('conditionNotes')||'').trim():'',
+   warrantyText:String(fd.get('warrantyText')||'').trim()};
+  if(record.warrantyText.length>180)throw Error('Descrição de garantia muito longa.');
   const now=new Date().toISOString();
   commit(copy=>{
-   const defaultSupplierId=getOrCreateSupplier(copy,supplierName);
-   const productId=id||uid();
-   if(id)Object.assign(byId(copy.products,id),record,{defaultSupplierId});
+   const defaultSupplierId=getOrCreateSupplier(copy,supplierName),productId=id||uid();
+   if(id){const target=byId(copy.products,id);Object.assign(target,record,{defaultSupplierId});delete target.supplierWarranty;delete target.manufacturerWarranty;}
    else copy.products.push({id:productId,category:tracking==='serial'?'Celular':'Outro',sku:'',minStock:0,price:0,...record,defaultSupplierId,createdAt:now});
-   if(addQuantity>0)copy.entries.push({id:uid(),productId,supplierId:defaultSupplierId,date:localDate(),quantity:addQuantity,unitCost:record.cost,serials:tracking==='serial'?serials:[],notes:id?'Entrada pelo cadastro':'Entrada inicial',createdAt:now});
+   if(addQuantity>0)copy.entries.push({id:uid(),productId,supplierId:defaultSupplierId,date:localDate(),quantity:addQuantity,unitCost:record.cost,serials:tracking==='serial'?serials:[],notes:id?'Entrada pelo cadastro':'Entrada inicial',createdAt:now,
+    condition:record.condition,batteryHealth:record.batteryHealth,repairs:record.repairs,conditionNotes:record.conditionNotes,
+    warrantyText:record.warrantyText});
   },id?'Produto atualizado.':'Produto cadastrado.');
  }
  else if(mode==='entry'){
@@ -505,22 +563,18 @@ function saveForm(ev){
   else commit(copy=>copy.expenses.push({id:uid(),...record,createdAt:new Date().toISOString()}),'Lançamento registrado.');
  }
  else if(mode==='sale-simple'){
-  const customerName=required(fd,'customerName','o nome do cliente');
-  const productId=required(fd,'saleProductId','o produto'),p=prod(productId);
+  const customerName=required(fd,'customerName','o nome do cliente'),productId=required(fd,'saleProductId','o produto'),p=prod(productId);
   if(!p)throw Error('Produto não encontrado.');
-  const quantity=numericField(fd,'saleQuantity');
-  if(!Number.isInteger(quantity)||quantity<1||quantity>100000)throw Error('Quantidade inválida.');
-  const unitPrice=numericField(fd,'saleUnitPrice');
-  const otherCosts=numericField(fd,'saleExtras');
-  const warrantyMonths=numericField(fd,'saleWarrantyMonths',p.warrantyMonths??3);
-  if(!Number.isInteger(warrantyMonths)||warrantyMonths>120)throw Error('Garantia deve ser informada em meses (0 a 120).');
+  const quantity=numericField(fd,'saleQuantity');if(!Number.isInteger(quantity)||quantity<1||quantity>100000)throw Error('Quantidade inválida.');
+  const unitPrice=numericField(fd,'saleUnitPrice'),otherCosts=numericField(fd,'saleExtras');
+  const customerWarrantyText=String(fd.get('saleWarrantyText')||'').trim();
+  if(customerWarrantyText.length>180)throw Error('Descrição de garantia muito longa.');
   const serials=Array.from(form.querySelectorAll('[data-sale-serial]')).map(x=>x.value);
   if(p.tracking==='serial'&&serials.some(x=>!x))throw Error('Selecione o IMEI de cada unidade.');
   const items=allocatedItems([{productId,quantity,unitPrice,serials:p.tracking==='serial'?serials:[]}]);
-  const total=saleTotal({items});
-  const amountPaid=String(fd.get('amountPaid')||'').trim()===''?total:numericField(fd,'amountPaid');
-  if(amountPaid>total)throw Error('O valor recebido não pode ultrapassar o total da venda.');
-  const record={id:uid(),date:localDate(),completedAt:localDate(),status:'concluida',items,clientId:'',customerName,paymentMethod:String(fd.get('paymentMethod')||'Pix'),installments:1,fees:0,shipping:0,otherCosts,warrantyMonths,amountPaid,notes:'',createdAt:new Date().toISOString()};
+  const total=saleTotal({items}),amountPaid=String(fd.get('amountPaid')||'').trim()===''?total:numericField(fd,'amountPaid');
+  if(amountPaid>total)throw Error('Valor recebido maior do que a venda.');
+  const record={id:uid(),date:localDate(),completedAt:localDate(),status:'concluida',items,clientId:'',customerName,paymentMethod:String(fd.get('paymentMethod')||'Pix'),installments:1,fees:0,shipping:0,otherCosts,customerWarrantyText,amountPaid,notes:'',createdAt:new Date().toISOString()};
   if(commit(copy=>copy.sales.push(record),'Venda registrada.'))receiptModal(record.id);
  }
  else if(mode==='finalize-order'){
@@ -583,9 +637,10 @@ async function actionHandler(e){
   switch(a){
    case 'nav':view=el.dataset.view;query='';stockFilter='todos';saleFilter='todos';onlyCurrentMonth=false;closeModal();render();window.scrollTo({top:0,behavior:'instant'});break;
    case 'kpi-sales':view='sales';query='';saleFilter='concluida';onlyCurrentMonth=true;render();window.scrollTo(0,0);break;
-   case 'kpi-profit':view='finance';render();window.scrollTo(0,0);break;
+   case 'kpi-profit':view='finance';financeDate=localDate();render();window.scrollTo(0,0);break;
    case 'kpi-stock':view='stock';query='';stockFilter='todos';render();window.scrollTo(0,0);break;
    case 'kpi-receivables':view='receivables';render();window.scrollTo(0,0);break;
+   case 'finance-today':financeDate=localDate();render();break;
    case 'show-all-sales':onlyCurrentMonth=false;saleFilter='todos';render();break;
    case 'show-receipt':receiptModal(id);break;
    case 'copy-receipt':await copyReceipt(id);break;
@@ -653,6 +708,8 @@ document.addEventListener('change',e=>{
  if(e.target.matches('#import-file')){importDB(e.target.files?.[0]);return;}
  if(e.target.matches('[data-entry-product]')){entryTrackingChange();return;}
  if(e.target.matches('#f-tracking')){productTrackingChange();return;}
+ if(e.target.matches('[data-condition]')){productConditionChange();return;}
+ if(e.target.matches('[data-finance-date]')){financeDate=e.target.value||localDate();render();return;}
  if(e.target.matches('#f-saleProductId')){saleProductChange();return;}
  if(e.target.matches('#f-saleQuantity')){saleSerialPickers();saleCalcTotal();return;}
  if(e.target.matches('#cart-product')){cartProductChange();return;}
